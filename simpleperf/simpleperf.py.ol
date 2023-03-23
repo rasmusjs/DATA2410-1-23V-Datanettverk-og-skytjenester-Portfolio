@@ -9,7 +9,6 @@ import time
 kilobyte = 1000
 default_ip = "127.0.0.1"
 server_transmissions = []
-client_transmissions = []
 formating_line = "-" * 45
 
 
@@ -108,7 +107,7 @@ parser.add_argument('-I', '--serverip', type=check_ip, default="127.0.0.1", help
 parser.add_argument('-t', '--time', type=check_positive, default="50", help="Time to run the client in seconds, "
                                                                             "it will try to send as many packets as "
                                                                             "possible in the given time.")
-parser.add_argument('-i', '--interval', type=check_positive)
+parser.add_argument('-i', '--interval', type=check_positive, default="60")
 parser.add_argument('-P', '--parallel', type=int, default="1", choices=range(1, 6), help="Number of parallel clients")
 parser.add_argument('-n', '--num', type=check_nbytes, help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
 
@@ -125,19 +124,112 @@ parser.add_argument('-f', '--format', type=str, default="MB", choices=("B", "KB"
 args = parser.parse_args()
 
 
-def general_summary(server):
+def client_send_nmbytes():
+    client_transmissions = []
+    # Use the global kilobyte
+    global kilobyte
+    # Size of the data to send
+    packet_size = 0
+
+    # Get the size of the packet from the user argument and convert it to bytes
+    if args.num.endswith("MB"):
+        packet_size = int(args.num[:-2]) * kilobyte * kilobyte
+    elif args.num.endswith("KB"):
+        packet_size = int(args.num[:-2]) * kilobyte
+    elif args.num.endswith("B"):
+        packet_size = int(args.num[:-1])
+
+    # Fill a buffer with bytes
+    dump = b'\x10' * packet_size
+
+    # Keep track of how many bytes we have sent in total
+    total_sent = 0
+    # Keep sending data until we have sent the packet size
+    while total_sent < packet_size:
+        start_time = time.time()
+        # Create a new socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Bind the socket to the host and port
+        sock.connect((args.serverip, args.port))
+        # Get the ip and port of the client
+        ip_port_pair = str(sock.getsockname()[0]) + ":" + str(sock.getsockname()[1])
+        # Print the client ip and port if we are using multiple clients
+        if args.parallel > 1:
+            print("Client IP: port connected with {}, port {}".format(args.serverip, sock.getsockname()[1]))
+
+        # Keep track of how many bytes we have sent with this socket
+        socket_sent = 0
+        # Send data for in the given interval
+        interval = time.time() + int(args.interval)
+        while time.time() <= interval and total_sent < packet_size:
+            # Send the data in chunks of 1KB
+            bytes_to_send = min(kilobyte, packet_size - total_sent)
+            # Send the data
+            sock.send(dump[:bytes_to_send])
+            # Update the total sent
+            total_sent += bytes_to_send
+            socket_sent += bytes_to_send
+
+        sock.send('FIN'.encode())
+        response = sock.recv(kilobyte).decode()
+        if response == "ACK":
+            sock.close()
+            elapsed_time = time.time() - start_time
+            client_transmissions.append((ip_port_pair, elapsed_time, socket_sent))
+    return client_transmissions
+
+
+def client_send_time():
+    # List to keep track of all the client threads
+    client_transmissions = []
+    # Use the global kilobyte
+    global kilobyte
+    total_sent = 0
+    # Send data for a certain amount of time
+    runtime = time.time() + int(args.time)
+    while time.time() <= runtime:
+        start_time = time.time()
+        # Create a new socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Bind the socket to the host and port
+        sock.connect((args.serverip, args.port))
+        # Get the ip and port of the client
+        ip_port_pair = str(sock.getsockname()[0]) + ":" + str(sock.getsockname()[1])
+
+        # Print the client ip and port if we are using multiple clients
+        if args.parallel > 1:
+            print("Client IP: port connected with {}, port {}".format(args.serverip, sock.getsockname()[1]))
+
+        # Send data for in the given interval
+        interval = time.time() + int(args.interval)
+        while time.time() <= interval:
+            # Send the data in chunks of kilobyte
+            sock.send(b'\x10' * kilobyte)
+            total_sent += kilobyte
+
+        # Send the final command
+        sock.send("BYE".encode())
+
+        # Get the response
+        response = sock.recv(kilobyte).decode()
+        if response == "ACK:BYE":
+            # Close the socket
+            sock.close()
+            elapsed_time = time.time() - start_time
+            client_transmissions.append((ip_port_pair, elapsed_time, total_sent))
+            total_sent = 0
+    # End of the while loop
+    return client_transmissions
+
+
+def general_summary(transmissions, server):
     # Set the total time to 0, this will be used to calculate the interval
     total_time = 0.0
 
-    # transmissions = []
     # Print the header of the summary table depending on if we are the server or client
     if server:
-        global server_transmissions
-        transmissions = server_transmissions
         print("ID\tInterval\tReceived\tRate")
     else:
-        global client_transmissions
-        transmissions = client_transmissions
         print("ID\tInterval\tTransfer\tBandwidth")
 
     # Loop through all the transmissions
@@ -170,78 +262,24 @@ def start_client():
         # Check if we are connecting to one server or multiple
         print(formating_line)
 
-        # Use the global kilobyte
-        global kilobyte
-
-        global client_transmissions
-        # Keep track of how many bytes we have sent in total
-        total_sent = 0
-
-        start_time = time.time()
-        # Try to connect to the server
-
-        # Create a new socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Bind the socket to the host and port
-        sock.connect((args.serverip, args.port))
-        # Get the ip and port of the client
-        ip_port_pair = str(sock.getsockname()[0]) + ":" + str(sock.getsockname()[1])
-
-        # Print the client ip and port if we are using multiple clients
+        # Print the server ip and port if we are using only one client
         if args.parallel == 1:
             print("Client connecting to server {}, port {}".format(args.serverip, args.port))
-        else:
-            print("Client IP: port connected with {}, port {}".format(args.serverip, sock.getsockname()[1]))
 
+        # Try to connect to the server
         if args.num is not None:
-            # Size of the data to send
-            packet_size = 0
+            general_summary(client_send_nmbytes(), False)
 
-            # Get the size of the packet from the user argument and convert it to bytes
-            if args.num.endswith("MB"):
-                packet_size = int(args.num[:-2]) * kilobyte * kilobyte
-            elif args.num.endswith("KB"):
-                packet_size = int(args.num[:-2]) * kilobyte
-            elif args.num.endswith("B"):
-                packet_size = int(args.num[:-1])
-
-            # Fill a buffer with bytes
-            dump = b'\x10' * packet_size
-
-            while total_sent < packet_size:
-                # Send the data in chunks of 1KB
-                bytes_to_send = min(kilobyte, packet_size - total_sent)
-                # Send the data
-                sock.send(dump[:bytes_to_send])
-                # Update the total sent
-                total_sent += bytes_to_send
         else:
             # Send data for a certain amount of time
-            runtime = time.time() + int(args.time)
-
-            while time.time() <= runtime:
-                # Send the data in chunks of kilobyte
-                sock.send(b'\x10' * kilobyte)
-                total_sent += kilobyte
-
-        # Send the final command
-        sock.send("BYE".encode())
-
-        # Get the response
-        response = sock.recv(kilobyte).decode()
-        if response == "ACK:BYE":
-            # Close the socket
-            sock.close()
-            elapsed_time = time.time() - start_time
-            client_transmissions.append((ip_port_pair, elapsed_time, total_sent))
-            # Print the summary
+            general_summary(client_send_time(), False)
 
     except ConnectionRefusedError:
         print("Connection refused. Please check the host and port, and try again.")
         exit(1)
 
 
-def server_client_thread(c_socket, c_addr):
+def client_thread(c_socket, c_addr):
     # Create the ip:port pair
     ip_port_pair = c_addr[0] + ":" + str(c_addr[1])
 
@@ -276,20 +314,16 @@ def server_client_thread(c_socket, c_addr):
             break
     # Print the summary after the client has disconnected
     # printSummary()
-    general_summary(True)
+    general_summary(server_transmissions, True)
 
 
-def interval_timer():
+def summary_countdown():
+    # Get the global variable for the server_transmissions
+    global server_transmissions
     # Wait for the time specified by the user
     time.sleep(int(args.interval))
-    # Get the global variable for the client_transmissions
-    global client_transmissions
-    if len(client_transmissions) != 0:
-        # Print the summary
-        general_summary(False)
-    else:
-        print("No data received from the server")
-    thread.start_new_thread(interval_timer, ())
+    # Print the summary
+    general_summary(server_transmissions, True)
 
 
 def start_server():
@@ -312,7 +346,7 @@ def start_server():
         # Start receiving data
         # Print statistics
         c_socket, c_addr = s_socket.accept()
-        thread.start_new_thread(server_client_thread, (c_socket, c_addr))
+        thread.start_new_thread(client_thread, (c_socket, c_addr))
         # Check if the number of clients is equal to the number of parallel clients, if so exit
 
         # printSummary()
@@ -336,29 +370,15 @@ if args.server:
     start_server()
 
 if args.client:
-
     # Check if user used bind to set server ip
     if args.bind != "127.0.0.1":
         print_error("Wrong use bind to set server ip")
         parser.print_help()
         exit(1)
 
-    if args.interval is None:
-        print("Starting client")
-    else:
-        thread.start_new_thread(interval_timer, ())
-
     # Create number of clients specified by parallel
     for i in range(args.parallel):
-        start_client()
-        # while True:
-        #   thread.start_new_thread(start_client, ())
-
-    if args.interval is None:
-        general_summary(False)
-    else:
-        # Wait for the time specified by the user before exiting, to allow the client to print the summary
-        time.sleep(args.interval)
+        thread.start_new_thread(start_client, ())
 
 if args.server and args.client or not args.server and not args.client:
     print("Error: you must run either in server or client mode")

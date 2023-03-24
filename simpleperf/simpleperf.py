@@ -104,23 +104,24 @@ parser = argparse.ArgumentParser(description="Optional arguments", epilog="end o
 
 # Client
 parser.add_argument('-c', '--client', action="store_true", help="Start the client")
-parser.add_argument('-I', '--serverip', type=check_ip, default="127.0.0.1", help="Server ip address, default 127.0.0.1")
-parser.add_argument('-t', '--time', type=check_positive, default="50", help="Time to run the client in seconds, "
-                                                                            "it will try to send as many packets as "
-                                                                            "possible in the given time.")
+parser.add_argument('-I', '--serverip', type=check_ip, default="127.0.0.1",
+                    help="Server ip address, default %(default)s")
+parser.add_argument('-t', '--time', type=check_positive, default="50",
+                    help="Time to run the client in seconds, it will try to send as many packets as possible in the given time. Default %(default)s")
 parser.add_argument('-i', '--interval', type=check_positive)
-parser.add_argument('-P', '--parallel', type=int, default="1", choices=range(1, 6), help="Number of parallel clients")
+parser.add_argument('-P', '--parallel', type=int, default="1", choices=range(1, 6),
+                    help="Number of parallel clients, default %(default)s")
 parser.add_argument('-n', '--num', type=check_nbytes, help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
 
 # Server
 parser.add_argument('-s', '--server', action="store_true", help="Start the server")
 parser.add_argument('-b', '--bind', type=check_ip, default="127.0.0.1",
-                    help="Bind the server to a specific ip address, default 127.0.0.1")
+                    help="Bind the server to a specific ip address, default %(default)s")
 
 # Common Args
 parser.add_argument('-p', '--port', type=check_port, default="8088", help="Port to use, default 8088")
 parser.add_argument('-f', '--format', type=str, default="MB", choices=("B", "KB", "MB"),
-                    help="Format to print the data")
+                    help="Format to print the data in, default %(default)s")
 
 args = parser.parse_args()
 
@@ -174,6 +175,7 @@ def start_client():
         global kilobyte
 
         global client_transmissions
+
         # Keep track of how many bytes we have sent in total
         total_sent = 0
 
@@ -264,9 +266,11 @@ def server_client_thread(c_socket, c_addr):
         packet = packet.strip(b'\x10')
         # Decode the packet
         packet = packet.decode()
+
         # Check if the client wants to EXIT
         if packet == "BYE":
             total_size -= len("BYE")
+            print("Received packet from client {}: {}".format(ip_port_pair, packet))
             # Send the response
             c_socket.send("ACK:BYE".encode())
             # Close the socket after sending the response
@@ -321,6 +325,11 @@ def start_server():
     # Print statistics
 
 
+if (args.server and args.client) or (not args.server and not args.client):
+    print("Error: you must run either in server or client mode")
+    parser.print_help()
+    exit(1)
+
 if args.server:
     # Try to bind to the ip and port
     # If it fails print error and exit
@@ -343,23 +352,20 @@ if args.client:
         parser.print_help()
         exit(1)
 
-    if args.interval is None:
-        print("Starting client")
-    else:
+    if args.interval is not None:
         thread.start_new_thread(interval_timer, ())
 
-    # Create number of clients specified by parallel
-    for i in range(args.parallel):
-        start_client()
-        # while True:
-        #   thread.start_new_thread(start_client, ())
+    # Start the clients with the specified number of parallel clients
+    for i in range(0, args.parallel):
+        # start_client()
+        thread.start_new_thread(start_client, ())
+        #time.sleep(0.1)  # Wait for 0.1 seconds before starting the next client
 
     if args.interval is None:
+        print("Hiii")
         general_summary(False)
+        time.sleep(3)
     else:
+        print("ikke hei")
         # Wait for the time specified by the user before exiting, to allow the client to print the summary
         time.sleep(args.interval)
-
-if args.server and args.client or not args.server and not args.client:
-    print("Error: you must run either in server or client mode")
-    parser.print_help()

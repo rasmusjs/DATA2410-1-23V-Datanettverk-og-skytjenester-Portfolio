@@ -1,7 +1,7 @@
 import argparse
 import socket
 import sys
-import _thread as thread
+import threading
 import time
 
 # Global variables
@@ -104,6 +104,7 @@ parser = argparse.ArgumentParser(description="Optional arguments", epilog="end o
 
 # Client
 parser.add_argument('-c', '--client', action="store_true", help="Start the client")
+
 parser.add_argument('-I', '--serverip', type=check_ip, default="127.0.0.1",
                     help="Server ip address, default %(default)s")
 parser.add_argument('-t', '--time', type=check_positive, default="50",
@@ -112,6 +113,8 @@ parser.add_argument('-i', '--interval', type=check_positive)
 parser.add_argument('-P', '--parallel', type=int, default="1", choices=range(1, 6),
                     help="Number of parallel clients, default %(default)s")
 parser.add_argument('-n', '--num', type=check_nbytes, help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
+
+# parser.addgroup()!!
 
 # Server
 parser.add_argument('-s', '--server', action="store_true", help="Start the server")
@@ -243,7 +246,7 @@ def start_client():
         exit(1)
 
 
-def server_client_thread(c_socket, c_addr):
+def handle_client(c_socket, c_addr):
     # Create the ip:port pair
     ip_port_pair = c_addr[0] + ":" + str(c_addr[1])
 
@@ -284,27 +287,19 @@ def server_client_thread(c_socket, c_addr):
 
 
 def interval_timer():
-    # Wait for the time specified by the user
-    time.sleep(int(args.interval))
     # Get the global variable for the client_transmissions
     global client_transmissions
+    # Check if we have received any data from the clients
     if len(client_transmissions) != 0:
-        # Print the summary
         general_summary(False)
-    else:
-        print("No data received from the server")
-    thread.start_new_thread(interval_timer, ())
 
 
 def start_server():
-    print("Starting server")
     # Create socket
     s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # Try to bind to the ip and port
-
+    # Try to bind to the ip and port and accept connections
     try:
         # Bind the socket to the host and port
-        # print("Binding to " + args.server + ":" + str(args.port) + "\n")
         s_socket.bind((args.bind, int(args.port)))
         print("A simpleperf server is listening on port {} \n".format(args.port))
     except socket.error:
@@ -313,16 +308,10 @@ def start_server():
     s_socket.listen()
     while True:
         # Accept connections
-        # Start receiving data
-        # Print statistics
         c_socket, c_addr = s_socket.accept()
-        thread.start_new_thread(server_client_thread, (c_socket, c_addr))
-        # Check if the number of clients is equal to the number of parallel clients, if so exit
-
-        # printSummary()
-    # If it fails print error and exit
-    # Start listening
-    # Print statistics
+        # Create a new thread for each client to handle the connection
+        client_worker = threading.Thread(target=handle_client, args=(c_socket, c_addr))
+        client_worker.start()
 
 
 if (args.server and args.client) or (not args.server and not args.client):
@@ -342,6 +331,7 @@ if args.server:
         parser.print_help()
         exit(1)
 
+    # Start the server
     start_server()
 
 if args.client:
@@ -352,20 +342,31 @@ if args.client:
         parser.print_help()
         exit(1)
 
+    # Set a variable for the interval thread
+    interval_tread = None
+    # Check if the user specified the interval
     if args.interval is not None:
-        thread.start_new_thread(interval_timer, ())
+        # Start the interval timer if the user specified the interval
+        interval_tread = threading.Timer(int(args.interval), interval_timer).start()
 
+    # Create a list of threads
+    client_treads = []
     # Start the clients with the specified number of parallel clients
     for i in range(0, args.parallel):
-        # start_client()
-        thread.start_new_thread(start_client, ())
-        #time.sleep(0.1)  # Wait for 0.1 seconds before starting the next client
+        # Start the client
+        client = threading.Thread(target=start_client)
+        client.start()
+        client_treads.append(client)
 
+    # Wait for all the threads to finish
+    for client in client_treads:
+        client.join()
+
+    # Check if the user specified the interval
     if args.interval is None:
-        print("Hiii")
         general_summary(False)
-        time.sleep(3)
     else:
-        print("ikke hei")
-        # Wait for the time specified by the user before exiting, to allow the client to print the summary
-        time.sleep(args.interval)
+        # Stop the interval timer
+        interval_tread = None
+        # Run the interval timer one last time to print the summary
+        interval_timer()

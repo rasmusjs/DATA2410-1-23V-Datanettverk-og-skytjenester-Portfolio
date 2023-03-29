@@ -6,22 +6,20 @@ import time
 
 # Global variables
 # Size of one kilo byte
-KILOBIT = 1000  # CONSTANT
-default_ip = "127.0.0.1"
+KILOBYTE = 1000  # CONSTANT
 transmissions = []
-final_transmissions = []
+finished_transmissions = []
 summary_print_index = 0
 formating_line = "-" * 45
-printheader = True
+summary_header_print = True
 interval_totaltime = 0.0
-interval_timer_thread = False
 
 
 class Transmission:
-    def __init__(self, ip_port_pair, elapsed_time, data_sent, total_bytes):
+    def __init__(self, ip_port_pair, elapsed_time, interval_sent_data, total_bytes):
         self.ip_port_pair = ip_port_pair
         self.elapsed_time = elapsed_time
-        self.data_sent = data_sent
+        self.interval_sent_data = interval_sent_data
         self.total_bytes = total_bytes
 
 
@@ -115,14 +113,20 @@ parser = argparse.ArgumentParser(description="Simpleperf, a simple iPerf clone f
                                  epilog="end of help")
 
 # Client arguments
+
+# Default values, these will be used if the user specifies wrong values for servermode
+default_ip = "127.0.0.1"
+default_time = 25
+default_parallel = 1
+
 client_group = parser.add_argument_group('client')
 client_group.add_argument('-c', '--client', action="store_true", help="Start the client")
-client_group.add_argument('-I', '--serverip', type=check_ip, default="127.0.0.1",
+client_group.add_argument('-I', '--serverip', type=check_ip, default=default_ip,
                           help="Server ip address, default %(default)s")
-client_group.add_argument('-t', '--time', type=check_positive, default="25",
+client_group.add_argument('-t', '--time', type=check_positive, default=default_time,
                           help="Time to run the client in seconds, it will try to send as many packets as possible in the given time. Default %(default)s")
 client_group.add_argument('-i', '--interval', type=check_positive)
-client_group.add_argument('-P', '--parallel', type=int, default="1", choices=range(1, 6),
+client_group.add_argument('-P', '--parallel', type=int, default=default_parallel, choices=range(1, 6),
                           help="Number of parallel clients, default %(default)s")
 client_group.add_argument('-n', '--num', type=check_nbytes,
                           help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
@@ -141,24 +145,24 @@ parser.add_argument('-f', '--format', type=str, default="MB", choices=("B", "KB"
 args = parser.parse_args()
 
 
-def general_summary(server):
+def general_summary(servermode=False):
     # Set the total time to 0, this will be used to calculate the interval
     # global total_time
     total_time = 0.0
 
     global interval_totaltime
     global transmissions
-    global final_transmissions
+    global finished_transmissions
     global summary_print_index
 
-    if server:
+    if servermode:
         print("\n{:<15s}{:^15s}{:^15s}{:^15s}".format("ID", "Interval", "Received", "Rate"))
     else:
         # Print the header of the summary table only once if we are the client
-        global printheader
-        if printheader is True:
+        global summary_header_print
+        if summary_header_print is True:
             print("\n{:<15s}{:^15s}{:^15s}{:^15s}".format("ID", "Interval", "Transfer", "Bandwidth"))
-            printheader = False
+            summary_header_print = False
 
     if len(transmissions) == 0:
         return
@@ -172,24 +176,24 @@ def general_summary(server):
         FORMAT_BIT = 1
         FORMAT_RATE = "Bps"
     elif args.format == "KB":
-        FORMAT_BIT = 1 / KILOBIT
+        FORMAT_BIT = 1 / KILOBYTE
         FORMAT_RATE = "KBps"
     elif args.format == "MB":
-        FORMAT_BIT = 1 / (KILOBIT * KILOBIT)
+        FORMAT_BIT = 1 / (KILOBYTE * KILOBYTE)
         FORMAT_RATE = "MBps"
 
     # Loop through all the transmissions from the summary_print_index
     for j in range(summary_print_index, len(transmissions)):
-        (ip_port_pair, elapsed_time, data_sent, total_sent) = transmissions[j]
+        (ip_port_pair, elapsed_time, interval_sent_data, total_sent) = transmissions[j]
 
         if summary_print_index == j:
-            if data_sent != 0 or args.interval is None or server:
-                # If the client are using the -i flag, we need to calculate the interval time
+            if interval_sent_data != 0 or args.interval is None or servermode:
+                # If the client are using the -interval flag, we need to calculate the interval time
                 if args.interval is not None:
                     total_time = interval_totaltime
                     elapsed_time = interval_totaltime + args.interval
                     # Convert the received bytes to the desired format i.e B, KB or MB from --format
-                    received = data_sent * FORMAT_BIT
+                    received = interval_sent_data * FORMAT_BIT
                 else:
                     received = total_sent * FORMAT_BIT
 
@@ -202,11 +206,11 @@ def general_summary(server):
                 print("{:^15s}{:^15s}{:^15s}{:^15s}".format(ip_port_pair, "{} - {}".format(f_start_time, f_end_time),
                                                             f_received, f_rate))
 
-            # Add the transmission to the final_transmissions list if it's the last transmission
-            if data_sent == 0 or server:
+            # Add the transmission to the finished_transmissions list if it's the last transmission
+            if interval_sent_data == 0 or servermode:
                 # Convert the total bytes to the desired format i.e B, KB or MB from --format
                 total_sent = round(total_sent * FORMAT_BIT, 2)
-                final_transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent))
+                finished_transmissions.append((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
 
         # Increment the summary_print_index, this is used to print the summary only once
         summary_print_index += 1
@@ -219,28 +223,28 @@ def general_summary(server):
 
 
 def print_total():
-    global final_transmissions
-    if len(final_transmissions) != args.parallel:
+    global finished_transmissions
+    if len(finished_transmissions) != args.parallel:
         # Wait for the other clients to finish before printing the total
         time.sleep(0.1)
 
     print(formating_line)
-    for (ip_port_pair, elapsed_time, data_sent, total_sent) in final_transmissions:
+    for (ip_port_pair, elapsed_time, interval_sent_data, total_sent) in finished_transmissions:
         print("Total sent {}{} to {}".format(total_sent, args.format, ip_port_pair))
-        # final_transmissions.remove((ip_port_pair, elapsed_time, data_sent, total_sent))
-    final_transmissions.clear()
+        # finished_transmissions.remove((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
+    finished_transmissions.clear()
 
 
 def client_start_client():
     try:
         # Use the global variables
-        global KILOBIT
+        global KILOBYTE
         global transmissions
 
         # Total sent keeps track of how many bytes we have sent in total
         total_sent = 0
         # Keep track of how many bytes we have sent in this interval
-        data_sent = 0
+        interval_sent_data = 0
         # Set the start time to the current time
         start_time = time.time()
         # Set the next save interval to 0, this will be used to calculate when to save the data if the user has specified an interval
@@ -262,9 +266,11 @@ def client_start_client():
                                                                           sock.getsockname()[1], args.serverip,
                                                                           args.port))
 
-        # If the user has specified an interval, set the next interval to the current time + the interval
+        # If the user has specified an interval, set the next interval to the current time + the interval time.
+        # -0.05 to make sure we don't miss the interval for the interval timer
+        SAVE_OFFSET = -0.05
         if args.interval is not None:
-            save_interval = time.time() + int(args.interval)
+            save_interval = time.time() + int(args.interval) + SAVE_OFFSET
 
         # Loop until we have sent the amount of data specified by the user
         if args.num is not None:
@@ -273,9 +279,9 @@ def client_start_client():
 
             # Get the size of the packet from the user argument and convert it to the correct size
             if args.num.endswith("MB"):
-                packet_size = int(args.num[:-2]) * KILOBIT * KILOBIT
+                packet_size = int(args.num[:-2]) * KILOBYTE * KILOBYTE
             elif args.num.endswith("KB"):
-                packet_size = int(args.num[:-2]) * KILOBIT
+                packet_size = int(args.num[:-2]) * KILOBYTE
             elif args.num.endswith("B"):
                 packet_size = int(args.num[:-1])
 
@@ -283,48 +289,48 @@ def client_start_client():
             dump = b'\x10' * packet_size
 
             while total_sent < packet_size:
-                # Devide the packet size by the KILOBIT to get the number of chunks
-                bytes_to_send = min(KILOBIT, packet_size - total_sent)
+                # Devide the packet size by the KILOBYTE to get the number of chunks
+                bytes_to_send = min(KILOBYTE, packet_size - total_sent)
                 # Send the data in chunks of 1KB
                 sock.send(dump[:bytes_to_send])
                 # Update the total sent
                 total_sent += bytes_to_send
                 # Update the total sent
-                data_sent += KILOBIT
+                interval_sent_data += KILOBYTE
                 if time.time() > save_interval != 0:
-                    save_interval = time.time() + int(args.interval)
+                    save_interval = time.time() + int(args.interval) + SAVE_OFFSET
                     # Update the elapsed time
                     elapsed_time = time.time() - start_time
-                    transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent))
-                    data_sent = 0
+                    transmissions.append((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
+                    interval_sent_data = 0
         # If the user has specified a time, send data for that amount of time, default is 25 seconds
         else:
             # Set the runtime
             runtime = time.time() + int(args.time)
             while time.time() <= runtime:
-                # Send the data in chunks of KILOBIT
-                sock.send(b'\x10' * KILOBIT)
-                total_sent += KILOBIT
+                # Send the data in chunks of KILOBYTE
+                sock.send(b'\x10' * KILOBYTE)
+                total_sent += KILOBYTE
                 # Update the total sent
-                data_sent += KILOBIT
+                interval_sent_data += KILOBYTE
                 if time.time() > save_interval != 0:
-                    save_interval = time.time() + int(args.interval)
+                    save_interval = time.time() + int(args.interval) + SAVE_OFFSET
                     # Update the elapsed time
                     elapsed_time = time.time() - start_time
-                    transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent))
-                    data_sent = 0
+                    transmissions.append((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
+                    interval_sent_data = 0
 
         # Graceful close of connection by sending BYE
         sock.send("BYE".encode())
 
         # Then wait for the server to close the connection by sending ACK:BYE
-        response = sock.recv(KILOBIT).decode()
+        response = sock.recv(KILOBYTE).decode()
         if response == "ACK:BYE":
             # Close the socket
             sock.close()
             # Update the elapsed time one last time
             elapsed_time = time.time() - start_time
-            # Update the transmission, and set the data_sent to 0 since we are done sending data
+            # Update the transmission, and set the interval_sent_data to 0 since we are done sending data
             transmissions.append((ip_port_pair, elapsed_time, 0, total_sent))
 
     except ConnectionRefusedError:
@@ -346,7 +352,7 @@ def server_handle_client(c_socket, c_addr):
     total_received = 0
     while True:
         # Get the request
-        packet = c_socket.recv(KILOBIT)
+        packet = c_socket.recv(KILOBYTE)
         # Add the size of the packet
         total_received += len(packet)
         # Remove the escape character
@@ -375,12 +381,11 @@ def interval_timer(client_treads):
         # Wait for the interval
         time.sleep(args.interval)
         # Print the summary
-        general_summary(False)
+        general_summary()
         # Remove the threads that have finished
         for client in client_treads:
             if not client.is_alive():
                 client_treads.remove(client)
-
 
 
 def start_server():
@@ -424,7 +429,7 @@ def start_clients():
         for client in client_treads:
             client.join()
         # Print the summary
-        general_summary(False)
+        general_summary()
     else:
         interval_timer(client_treads)
         # Wait for all clients to finish
@@ -432,25 +437,60 @@ def start_clients():
     print_total()
 
 
-if (args.server and args.client) or (not args.server and not args.client):
-    print("Error: you must run either in server or client mode")
-    parser.print_help()
-    exit(1)
-
-if args.server:
-    # Check if user used bind to set server ip
-    if args.serverip != "127.0.0.1":
-        print_error("Wrong use of serverip, use bind to set server ip, while using server mode")
+def main():
+    # Check if server and client are both set, or none of them
+    if (args.server and args.client) or (not args.server and not args.client):
+        print("Error: you must run either in server or client mode")
         parser.print_help()
         exit(1)
 
-    # Start the server
-    start_server()
+    if args.server:
+        # Error checking for server mode, check if user used any client arguments
+        any_client_args = False
 
-if args.client:
-    # Check if user used bind to set server ip
-    if args.bind != "127.0.0.1":
-        print_error("Wrong use of bind, use serverip to set server ip, while using client mode")
-        parser.print_help()
-        exit(1)
-    start_clients()
+        # Check if user used bind to set server ip
+        if args.serverip != default_ip:
+            print_error("Wrong use of serverip, use bind to set server ip, while using server mode")
+            any_client_args = True
+
+        # Check if user used time
+        if args.time != default_time:
+            print_error("Time argument cant be used in server mode")
+            any_client_args = True
+
+        # Check if user used interval
+        if args.interval is not None:
+            print_error("Interval argument cant be used in server mode")
+            any_client_args = True
+
+        # Check if user used parallel
+        if args.parallel != default_parallel:
+            print_error("Parallel argument cant be used in server mode")
+            any_client_args = True
+
+        # Check if user used num
+        if args.num is not None:
+            print_error("Num argument cant be used in server mode")
+            any_client_args = True
+
+        if any_client_args is True:
+            parser.print_help()
+            exit(1)
+
+        # Start the server
+        start_server()
+    # End of server mode
+
+    if args.client:
+        # Error checking for client mode, check if user used any server arguments
+        if args.bind != "127.0.0.1":
+            print_error("Wrong use of bind, use serverip to set server ip, while using client mode")
+            parser.print_help()
+            exit(1)
+
+        start_clients()
+    # End of client mode
+
+
+if __name__ == "__main__":
+    main()

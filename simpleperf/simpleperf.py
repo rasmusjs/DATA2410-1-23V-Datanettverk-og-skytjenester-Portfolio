@@ -182,33 +182,34 @@ def general_summary(server):
     # Loop through all the transmissions
     for j in range(summary_print_index, len(transmissions)):
         (ip_port_pair, elapsed_time, data_sent, total_sent) = transmissions[j]
-        if data_sent != 0 and summary_print_index == j or server or args.interval is None:
 
-            if args.interval is not None:
-                total_time = interval_totaltime
-                elapsed_time = interval_totaltime + args.interval
+        if summary_print_index == j:
+            if data_sent != 0 or server or args.interval is None:
+                # If the client are using the -i flag, we need to calculate the interval time
+                if args.interval is not None:
+                    total_time = interval_totaltime
+                    elapsed_time = interval_totaltime + args.interval
+                    # Convert the received bytes to the desired format i.e B, KB or MB from --format
+                    received = data_sent * FORMAT_BIT
+                else:
+                    received = total_sent * FORMAT_BIT
 
-            # Convert the received bytes to the desired format i.e B, KB or MB from --format
-            received = data_sent * FORMAT_BIT
+                # Format the values to 2 decimal places and add the units
+                f_start_time = round(total_time, 2)
+                f_end_time = round(elapsed_time, 2)
+                f_received = str(round(received, 2)) + args.format
+                f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
+                # Print the summary of the transmission
+                print("{:^15s}{:^15s}{:^15s}{:^15s}".format(ip_port_pair, "{} - {}".format(f_start_time, f_end_time),
+                                                            f_received, f_rate))
 
-            if args.interval is None:
-                received = total_sent * FORMAT_BIT
+            # Add the transmission to the final_transmissions list if it's the last transmission
+            if data_sent == 0 or server:
+                # Convert the total bytes to the desired format i.e B, KB or MB from --format
+                total_sent = round(total_sent * FORMAT_BIT, 2)
+                final_transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent))
 
-            # Format the values to 2 decimal places and add the units
-            f_start_time = round(total_time, 2)
-            f_end_time = round(elapsed_time, 2)
-            f_received = str(round(received, 2)) + args.format
-            f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
-            # Print the summary of the transmission
-            print("{:^15s}{:^15s}{:^15s}{:^15s}".format(ip_port_pair, "{} - {}".format(f_start_time, f_end_time),
-                                                        f_received, f_rate))
-
-        if data_sent == 0 and summary_print_index == j or server:
-            # Convert the total bytes to the desired format i.e B, KB or MB from --format
-            total_sent = round(total_sent * FORMAT_BIT, 2)
-            final_transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent))
-
-        # Keep track of the index of the last printed transmission
+        # Increment the summary_print_index, this is used to print the summary only once
         summary_print_index += 1
 
     if args.interval is not None:

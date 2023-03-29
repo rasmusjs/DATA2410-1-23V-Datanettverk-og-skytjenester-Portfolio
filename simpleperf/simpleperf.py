@@ -8,10 +8,9 @@ import time
 # Size of one kilo byte
 KILOBIT = 1000  # CONSTANT
 default_ip = "127.0.0.1"
-total_time = 0.0
-server_transmissions = []
 client_transmissions = []
-client_transmission_index = 0
+final_transmissions = []
+summary_print_index = 0
 formating_line = "-" * 45
 printheader = True
 interval_totaltime = 0.0
@@ -142,7 +141,7 @@ parser.add_argument('-f', '--format', type=str, default="MB", choices=("B", "KB"
 args = parser.parse_args()
 
 
-def general_summary(server, print_summary=False):
+def general_summary(server):
     # Set the total time to 0, this will be used to calculate the interval
     # global total_time
     total_time = 0.0
@@ -152,22 +151,19 @@ def general_summary(server, print_summary=False):
     # Print the header of the summary table depending on if we are the server or client
     # global total_time
     global interval_totaltime
-    global server_transmissions
     global client_transmissions
+    global final_transmissions
 
     if server:
-        transmissions = server_transmissions
         print("\n{:<15s}{:^15s}{:^15s}{:^15s}".format("ID", "Interval", "Received", "Rate"))
     else:
-        global client_transmissions
-        transmissions = client_transmissions
         # Print the header of the summary table only once if we are the client
         global printheader
         if printheader is True:
             print("\n{:<15s}{:^15s}{:^15s}{:^15s}".format("ID", "Interval", "Transfer", "Bandwidth"))
             printheader = False
 
-    if len(transmissions) == 0:
+    if len(client_transmissions) == 0:
         return
 
     # Calculate the packet size in bytes
@@ -185,54 +181,59 @@ def general_summary(server, print_summary=False):
         FORMAT_BIT = 1 / (KILOBIT * KILOBIT)
         FORMAT_RATE = "MBps"
 
-    global client_transmission_index
+    global summary_print_index
 
     # Loop through all the transmissions
-    for i in range(client_transmission_index, len(transmissions)):
-        (ip_port_pair, elapsed_time, data_sent, total_sent) = client_transmissions[i]
-        # Calculate the total time
-        total_bytes += total_sent
+    for j in range(summary_print_index, len(client_transmissions)):
+        (ip_port_pair, elapsed_time, data_sent, total_sent) = client_transmissions[j]
+        if data_sent != 0 and summary_print_index == j or server:
 
-        if args.interval is not None:
-            total_time = interval_totaltime
-            elapsed_time = interval_totaltime + args.interval
+            # Calculate the total time
+            total_bytes += total_sent
 
-        # Convert the received bytes to the desired format i.e B, KB or MB from --format
-        received = data_sent * FORMAT_BIT
+            if args.interval is not None:
+                total_time = interval_totaltime
+                elapsed_time = interval_totaltime + args.interval
 
-        # Format the values to 2 decimal places and add the units
-        f_start_time = round(total_time, 2)
-        f_end_time = round(elapsed_time, 2)
-        f_received = str(round(received, 2)) + args.format
-        f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
-        # Print the summary of the transmission
-        print(
-            "{:^15s}{:^15s}{:^15s}{:^15s}".format(ip_port_pair, "{} - {}".format(f_start_time, f_end_time), f_received,
-                                                  f_rate))
-        if client_transmission_index == len(client_transmissions):
-            print("Ferdig da!")
-        client_transmission_index += 1
+            # Convert the received bytes to the desired format i.e B, KB or MB from --format
+            received = data_sent * FORMAT_BIT
+
+            # Format the values to 2 decimal places and add the units
+            f_start_time = round(total_time, 2)
+            f_end_time = round(elapsed_time, 2)
+            f_received = str(round(received, 2)) + args.format
+            f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
+            # Print the summary of the transmission
+            print(
+                "{:^15s}{:^15s}{:^15s}{:^15s}".format(ip_port_pair, "{} - {}".format(f_start_time, f_end_time),
+                                                      f_received,
+                                                      f_rate))
+
+        if data_sent == 0 and summary_print_index == j:
+            final_transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent * FORMAT_BIT))
+        summary_print_index += 1
 
     # Convert the total bytes to the desired format i.e B, KB or MB from --format
     total_bytes = round(total_bytes * FORMAT_BIT, 2)
+
     if args.interval is not None:
         interval_totaltime += args.interval
-        # If the interval time has been reached print the total sent
-        if interval_totaltime == args.time:
-            print("Total sent {}{}".format(total_bytes, args.format))
 
     if server:
         print("Total received {}{}".format(total_bytes, args.format))
 
-    if print_summary:
-        print("Total sent {}{}".format(total_bytes, args.format))
 
-    # transmissions.remove((ip_port_pair, elapsed_time, total_bytes))
-    # Clear the transmissions list
-    # transmissions.clear()
+def print_total():
+    global final_transmissions
+    if len(final_transmissions) != args.parallel:
+        # Wait for the other clients to finish before printing the total
+        time.sleep(0.1)
 
-
-# interval_totaltime += args.interval
+    print(formating_line)
+    for (ip_port_pair, elapsed_time, data_sent, total_sent) in final_transmissions:
+        print("Total sent {}{} to {}".format(total_sent, args.format, ip_port_pair))
+        # final_transmissions.remove((ip_port_pair, elapsed_time, data_sent, total_sent))
+    final_transmissions.clear()
 
 
 def start_client():
@@ -330,7 +331,7 @@ def start_client():
             elapsed_time = time.time() - start_time
             # data_sent = total_sent
             # Update the transmission
-            client_transmissions.append((ip_port_pair, elapsed_time, data_sent, total_sent))
+            client_transmissions.append((ip_port_pair, elapsed_time, 0, total_sent))
 
     except ConnectionRefusedError:
         print("Connection refused. Please check the host and port, and try again.")
@@ -344,7 +345,7 @@ def handle_client(c_socket, c_addr):
     print("\nA simpleperf client with {} is connected with {}:{}".format(ip_port_pair, args.bind, args.port))
 
     # Get the global variable for the server_transmissions
-    global server_transmissions
+    global client_transmissions
     # Current time
     start_time = time.time()
     # Size of the packet
@@ -369,31 +370,9 @@ def handle_client(c_socket, c_addr):
             # Close the socket after sending the response
             c_socket.close()
             # Save the results of the transmission
-            server_transmissions.append((ip_port_pair, elapsed_time - start_time, total_received, total_received))
+            client_transmissions.append((ip_port_pair, elapsed_time - start_time, total_received, total_received))
             break
     general_summary(True)
-
-
-"""def interval_timer():
-    print("Interval timer started" + str(args.interval))
-    # time.sleep(int(args.interval))
-    time.sleep(2)
-    global client_transmissions
-    # Check if we have received any data from the clients
-    if len(client_transmissions) != 0:
-        general_summary(False)
-
-    global interval_timer_thread
-    if interval_timer_thread is True:
-        threading.Thread(target=interval_timer).start()"""
-
-"""def interval_timer2():
-    # Start the interval timer
-    while True:
-        # Wait for the interval
-        time.sleep(args.interval)
-        # Print the summary
-        general_summary(False)"""
 
 
 def start_server():
@@ -475,7 +454,7 @@ if args.client:
         for client in client_treads:
             client.join()
         # Print the summary
-        general_summary(False, True)
+        general_summary(False)
     else:
         # Print statistics every interval, until all clients have finished
         while len(client_treads) != 0:
@@ -487,5 +466,9 @@ if args.client:
             for client in client_treads:
                 if not client.is_alive():
                     client_treads.remove(client)
+
+        # Wait for all clients to finish
+        time.sleep(0.5)
+        print_total()
         # time.sleep(args.interval)
         # general_summary(False)

@@ -14,6 +14,7 @@ summary_print_index = 0
 formating_line = "-" * 45
 summary_header_print = True
 interval_totaltime = 0.0
+FORMAT_RATE = ""
 
 
 class Transmission:
@@ -30,7 +31,7 @@ def print_error(error):
 
 def print_server():
     print(formating_line)
-    print("A simpleperf server is listening on port {}".format(args.port))
+    print(f"A simpleperf server is listening on port {args.port}")
     print(formating_line)
 
 
@@ -49,7 +50,8 @@ def check_positive(val):
 def check_port(port):
     try:
         port = int(port)
-        if 1024 > port:
+        # Check if port is in range
+        if port < 1024:
             print_error("Port number is too small, the port must be from 1024 upto 65535")
             raise argparse.ArgumentTypeError("Port number is too small, the port must be from 1024 upto 65535")
 
@@ -150,14 +152,15 @@ def general_summary(servermode=False):
     global transmissions
     global finished_transmissions
     global summary_print_index
+    global FORMAT_RATE
 
     if servermode:
-        print("\n{:<15s}{:^15s}{:^15s}{:^15s}".format("ID", "Interval", "Received", "Rate"))
+        print(f"\n{'ID':<15s}{'Interval':^15s}{'Received':^15s}{'Rate':^15s}")
     else:
         # Print the header of the summary table only once if we are the client
         global summary_header_print
         if summary_header_print is True:
-            print("\n{:<15s}{:^15s}{:^15s}{:^15s}".format("ID", "Interval", "Transfer", "Bandwidth"))
+            print(f"\n{'ID':<15s}{'Interval':^15s}{'Transfer':^15s}{'Bandwidth':^15s}")
             summary_header_print = False
 
     if len(transmissions) == 0:
@@ -199,8 +202,7 @@ def general_summary(servermode=False):
                 f_received = str(round(received, 2)) + args.format
                 f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
                 # Print the summary of the transmission
-                print("{:^15s}{:^15s}{:^15s}{:^15s}".format(ip_port_pair, "{} - {}".format(f_start_time, f_end_time),
-                                                            f_received, f_rate))
+                print(f"{ip_port_pair:^15s}{f_start_time} - {f_end_time:^15s}{f_received:^15s}{f_rate:^15s}")
 
             # Add the transmission to the finished_transmissions list if it's the last transmission
             if interval_sent_data == 0 or servermode:
@@ -220,13 +222,14 @@ def general_summary(servermode=False):
 
 def print_total():
     global finished_transmissions
+    global FORMAT_RATE
     if len(finished_transmissions) != args.parallel:
         # Wait for the other clients to finish before printing the total
         time.sleep(0.1)
 
     print(formating_line)
     for (ip_port_pair, elapsed_time, interval_sent_data, total_sent) in finished_transmissions:
-        print("Total sent {}{} to {}".format(total_sent, args.format, ip_port_pair))
+        print(f"Total sent {total_sent}{args.format} to {ip_port_pair} {FORMAT_RATE}")
         # finished_transmissions.remove((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
     finished_transmissions.clear()
 
@@ -256,11 +259,9 @@ def client_start_client():
 
         # Print the client ip and port if we are using multiple clients
         if args.parallel == 1:
-            print("Client connected to server {}, port {}".format(args.serverip, args.port))
+            print(f"Client connected to server {args.serverip}, port {args.port}")
         else:
-            print("Client {}:{} connected with server {}, port {}".format(sock.getsockname()[0],
-                                                                          sock.getsockname()[1], args.serverip,
-                                                                          args.port))
+            print(f"Client {sock.getsockname()[0]}:{sock.getsockname()[1]} connected with server {args.serverip}, port {args.port}")
 
         # If the user has specified an interval, set the next interval to the current time + the interval time.
         # -0.05 to make sure we don't miss the interval for the interval timer
@@ -273,7 +274,7 @@ def client_start_client():
             # Size of the data to send in bytes
             packet_size = 0
 
-            # Get the size of the packet from the user argument and convert it to the correct size
+            # Get the packet size in bytes, and remove the units from the number
             if args.num.endswith("MB"):
                 packet_size = int(args.num[:-2]) * KILOBYTE * KILOBYTE
             elif args.num.endswith("KB"):
@@ -338,7 +339,7 @@ def server_handle_client(c_socket, c_addr):
     # Create the ip:port pair
     ip_port_pair = c_addr[0] + ":" + str(c_addr[1])
     print_server()
-    print("\nA simpleperf client with {} is connected with {}:{}".format(ip_port_pair, args.bind, args.port))
+    print(f"\nA simpleperf client with {ip_port_pair} is connected with {args.bind}:{args.port}")
 
     # Get the global variable for the server_transmissions
     global transmissions
@@ -407,7 +408,7 @@ def start_server():
 
 def start_clients():
     print(formating_line)
-    print("A simpleperf client connecting to server {}, port {}".format(args.serverip, args.port))
+    print(f"A simpleperf client connecting to server {args.serverip}, port {args.port}")
     print(formating_line)
 
     # Create a list of threads

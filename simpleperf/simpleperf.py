@@ -3,6 +3,7 @@ import socket
 import sys
 import threading
 import time
+import re
 
 # Global variables
 # Size of one kilo byte
@@ -94,19 +95,14 @@ def check_ip(ip):
 
 
 def check_nbytes(nbytes):
-    if nbytes.endswith("MB"):
-        print("MB choosen")
-        return nbytes
-    elif nbytes.endswith("KB"):
-        print("KB choosen")
-        return nbytes
-    elif nbytes.endswith("B"):
-        print("B choosen")
-        return nbytes
-    else:
+    # Check if string starts with number and ends with B, KB or MB
+    check = re.compile(r"^[0-9]+(B|KB|MB)$")
+    if not check.match(nbytes):
         print_error("Invalid numbers to send must end with B, KB or MB. " + nbytes + " is not recognized")
         raise argparse.ArgumentTypeError(
             "Invalid numbers to send must end with B, KB or MB. " + nbytes + " is not recognized")
+    # Return the string if it is valid
+    return nbytes
 
 
 parser = argparse.ArgumentParser(description="Simpleperf, a simple iPerf clone for testing network performance.",

@@ -1,17 +1,16 @@
 import argparse
 import socket
-import sys
 import threading
 import time
 import re
 
 # Global variables
-# Size of one kilo byte
-KILOBYTE = 1000  # CONSTANT
-transmissions = []
-finished_transmissions = []
-summary_print_index = 0
-formating_line = "-" * 45
+
+KILOBYTE = 1000  # Size of one kilo byte
+transmissions = []  # List of all transmissions
+finished_transmissions = []  # List of all finished transmissions
+summary_print_index = 0  # Index of the last printed transmission
+formating_line = "-" * 45  # Formating line  -----------------------------
 summary_header_print = True
 interval_totaltime = 0.0
 FORMAT_RATE = ""
@@ -157,9 +156,9 @@ def general_summary(servermode=False):
     if servermode:
         print(f"\n{'ID':<15s}{'Interval':^15s}{'Received':^15s}{'Rate':^15s}")
     else:
-        # Print the header of the summary table only once if we are the client
         global summary_header_print
         if summary_header_print is True:
+            # Print the header of the summary table only once if we are the client
             print(f"\n{'ID':<15s}{'Interval':^15s}{'Transfer':^15s}{'Bandwidth':^15s}")
             summary_header_print = False
 
@@ -173,13 +172,13 @@ def general_summary(servermode=False):
     # Convert the data_total bytes to the desired format i.e B, KB or MB from --format
     if args.format == "B":
         FORMAT_BIT = 1
-        FORMAT_RATE = "Bps"
+        FORMAT_RATE = "bps"
     elif args.format == "KB":
         FORMAT_BIT = 1 / KILOBYTE
-        FORMAT_RATE = "KBps"
+        FORMAT_RATE = "Kbps"
     elif args.format == "MB":
         FORMAT_BIT = 1 / (KILOBYTE * KILOBYTE)
-        FORMAT_RATE = "MBps"
+        FORMAT_RATE = "Mbps"
 
     # Loop through all the transmissions from the summary_print_index
     for j in range(summary_print_index, len(transmissions)):
@@ -197,12 +196,11 @@ def general_summary(servermode=False):
                     received = total_sent * FORMAT_BIT
 
                 # Format the values to 2 decimal places and add the units
-                f_start_time = round(total_time, 2)
-                f_end_time = round(elapsed_time, 2)
+                f_interval = str(round(total_time, 2)) + " - " + str(round(elapsed_time, 2))
                 f_received = str(round(received, 2)) + args.format
                 f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
                 # Print the summary of the transmission
-                print(f"{ip_port_pair:^15s}{f_start_time} - {f_end_time:^15s}{f_received:^15s}{f_rate:^15s}")
+                print(f"{ip_port_pair:^15s}{f_interval:^15s}{f_received:^15s}{f_rate:^15s}")
 
             # Add the transmission to the finished_transmissions list if it's the last transmission
             if interval_sent_data == 0 or servermode:
@@ -229,7 +227,10 @@ def print_total():
 
     print(formating_line)
     for (ip_port_pair, elapsed_time, interval_sent_data, total_sent) in finished_transmissions:
-        print(f"Total sent {total_sent}{args.format} to {ip_port_pair} {FORMAT_RATE}")
+        f_interval = "0 - " + str(round(elapsed_time, 2)) + "s"
+        f_received = str(round(total_sent, 2)) + args.format
+        f_rate = str(round((total_sent / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
+        print(f"Total {ip_port_pair:^15s}{f_interval:^15s}{f_received:^15s}{f_rate:^15s}")
         # finished_transmissions.remove((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
     finished_transmissions.clear()
 
@@ -261,7 +262,8 @@ def client_start_client():
         if args.parallel == 1:
             print(f"Client connected to server {args.serverip}, port {args.port}")
         else:
-            print(f"Client {sock.getsockname()[0]}:{sock.getsockname()[1]} connected with server {args.serverip}, port {args.port}")
+            print(
+                f"Client {sock.getsockname()[0]}:{sock.getsockname()[1]} connected with server {args.serverip}, port {args.port}")
 
         # If the user has specified an interval, set the next interval to the current time + the interval time.
         # -0.05 to make sure we don't miss the interval for the interval timer
@@ -393,17 +395,30 @@ def start_server():
         # Bind the socket to the host and port
         s_socket.bind((args.bind, int(args.port)))
         print_server()  # Print the server info
+        s_socket.settimeout(60 * 5)  # Set the timeout to 10 minutes
     except socket.error:
         print("Failed to bind socket, maybe is the port and ip is taken already?")
-        sys.exit(1)
+        exit(1)
 
     # Start listening for connections
     s_socket.listen()
+
     while True:
-        # Accept connections
-        c_socket, c_addr = s_socket.accept()
-        # Create a new thread for each client to handle the connection
-        threading.Thread(target=server_handle_client, args=(c_socket, c_addr)).start()
+        try:
+            # Accept connections
+            c_socket, c_addr = s_socket.accept()
+            # Create a new thread for each client to handle the connection
+            threading.Thread(target=server_handle_client, args=(c_socket, c_addr)).start()
+        except socket.timeout:
+            # Close the socket
+            s_socket.close()
+            print("\nServer shutting down, no clients connected after 10 minutes...")
+            exit(0)
+        except KeyboardInterrupt:
+            # Close the socket
+            s_socket.close()
+            print("\nServer shutting down...")
+            exit(0)
 
 
 def start_clients():
@@ -437,7 +452,7 @@ def start_clients():
 def main():
     # Check if server and client are both set, or none of them
     if (args.server and args.client) or (not args.server and not args.client):
-        print("Error: you must run either in server or client mode")
+        print_error("You must run either in server or client mode")
         parser.print_help()
         exit(1)
 

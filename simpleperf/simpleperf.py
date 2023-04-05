@@ -6,14 +6,14 @@ import re
 
 # Global variables
 
-KILOBYTE = 1000  # Size of one kilo byte
+KILOBYTE = 1000  # Size of one kilobyte
 transmissions = []  # List of all transmissions
 finished_transmissions = []  # List of all finished transmissions
 summary_print_index = 0  # Index of the last printed transmission
 formating_line = "-" * 45  # Formating line  -----------------------------
-summary_header_print = True
-interval_totaltime = 0.0
-FORMAT_RATE = ""
+summary_header_print = True  # Boolean to check if the summary header has been printed
+interval_totaltime = 0.0  # Total time for all transmissions
+FORMAT_RATE_UNIT = ""  # Format for the rate unit i MB/s or KB/s
 
 
 class Transmission:
@@ -24,73 +24,107 @@ class Transmission:
         self.total_bytes = total_bytes
 
 
+# Print function for printing error messages the same way, with red color and "Error " in the front. Takes a string as input and prints it
 def print_error(error):
-    print("\033[1;31;1mError: \n\t" + error + "\n\033[0m")
+    print(f"\033[1;31;1mError: \n\t{error}\n\033[0m")
 
 
+# Function to print server messages the same way, with formatting lines and the port number for listening
 def print_server():
     print(formating_line)
     print(f"A simpleperf server is listening on port {args.port}")
     print(formating_line)
 
 
-def check_positive(val):
+# Description:
+# check is the input is a positive number, raises an error if it's a string or a negative number
+# Arguments:
+# value: holds the value to check
+# Returns the value if it is a positive number, if the value is returned the program will continue
+def check_positive(value):
+    # Default error message
+    error = None
     try:
-        val = int(val)
-        if val <= 0:
-            print_error(str(val) + " is not a valid number, must be positive")
-            raise argparse.ArgumentTypeError(str(val) + " is not a valid number, must be positive")
+        error = "expected an integer but you entered a string"
+        value = int(value)
+        if 0 >= value:
+            error = str(value) + " is not a valid number, must be positive"
+            raise ValueError
     except ValueError:
-        print_error('expected an integer but you entered a string')
-        raise argparse.ArgumentTypeError('expected an integer but you entered a string')
-    return val
+        print_error(error)
+        parser.print_help()
+        exit(1)
+    # Return the value if it is a positive number
+    return value
 
 
+# Description:
+# checks if the port is a number between 1024 and 65535
+# Arguments:
+# port: port number to use for the server or client
+# Returns: .... and why?
+# Returns the port number if it is valid, if the port is returned the program will continue
 def check_port(port):
+    # Default error message
+    error = None
     try:
+        error = "expected an integer but you entered a string"
         port = int(port)
         # Check if port is in range
         if port < 1024:
-            print_error("Port number is too small, the port must be from 1024 upto 65535")
-            raise argparse.ArgumentTypeError("Port number is too small, the port must be from 1024 upto 65535")
-
+            error = "Port number is too small, the port must be from 1024 upto 65535"
+            raise ValueError
         if 65535 < port:
-            print_error("Port number is too large, the port must be from 1024 upto 65535")
-            raise argparse.ArgumentTypeError("Port number is too large, the port must be from 1024 upto 65535")
+            error = "Port number is too large, the port must be from 1024 upto 65535"
+            raise ValueError
     except ValueError:
-        print_error('expected an integer but you entered a string')
-        raise argparse.ArgumentTypeError('expected an integer but you entered a string')
+        print_error(error)
+        parser.print_help()
+        exit(1)
+
+    # Return the port number if it is valid
     return port
 
 
+# Description:
+# checks if the ip are in the correct format and range
+# Arguments:
+# ip: holds the ip address of the server
+# Use of other input and output parameters in the function
+# It checks the dotted decimal notation of the ip address, checks if the ip address starts or ends with 0 and checks if the numbers are in range
+# Returns the ip if valid, if the ip is valid the program will continue
+
 def check_ip(ip):
+    # Default error message
+    error = None
     # Split the ip into a list
     ip_split = ip.split(".")
-
     try:
         # Check if we have 3 dots in the ip
         if len(ip_split) != 4:
-            print_error(ip + " is not valid ip")
-            raise argparse.ArgumentTypeError(ip + " is not valid ip")
+            error = f"{ip} is not a valid ip. IPs must have 3 dots in IPv4 format, in dotted decimal notation"
+            raise ValueError
 
         # Check if we start or end with 0
         if int(ip_split[0]) == 0 or int(ip_split[3]) == 0:
-            print_error(ip + " cannot start or end with 0")
-            raise argparse.ArgumentTypeError(ip + " cannot start or end with 0")
+            error = f"{ip} cannot start or end with 0"
+            raise ValueError
 
         # Check if numbers are in range
         for number in ip_split:
             if 0 > int(number):
-                print_error(number + " invalid too small number")
-                raise ValueError(number + " invalid too large number")
+                error = f"{number} is not a valid number, must be positive"
+                raise ValueError
 
             # If number is larger
             if 255 < int(number):
-                print_error(number + " invalid too large number")
-                raise ValueError(number + " invalid too large number")
+                error = f"{number} is not a valid number, must be smaller than 255"
+                raise ValueError
 
-    except ValueError:
-        raise argparse.ArgumentTypeError(ip_split + " is not valid ip")
+    except IndexError or ValueError:
+        print_error(error)
+        parser.print_help()
+        exit(1)
 
     return ip
 
@@ -98,25 +132,31 @@ def check_ip(ip):
 def check_nbytes(nbytes):
     # Check if string starts with number and ends with B, KB or MB
     check = re.compile(r"^[0-9]+(B|KB|MB)$")
-    if not check.match(nbytes):
+    try:
+        # Check if the string is valid and raise an error if it is not
+        if not check.match(nbytes):
+            raise ValueError
+    except ValueError:
         print_error("Invalid numbers to send must end with B, KB or MB. " + nbytes + " is not recognized")
-        raise argparse.ArgumentTypeError(
-            "Invalid numbers to send must end with B, KB or MB. " + nbytes + " is not recognized")
+        parser.print_help()
+        exit(1)
     # Return the string if it is valid
     return nbytes
 
 
+# Add description and epilog to the parser
 parser = argparse.ArgumentParser(description="Simpleperf, a simple iPerf clone for testing network performance.",
                                  epilog="end of help")
 
-# Client arguments
-
-# Default values, these will be used if the user specifies wrong values for servermode
+# This is the default values, these are set outside. This is so they can be used in the client or server specific arguments
 default_ip = "127.0.0.1"
 default_time = 25
 default_parallel = 1
+default_port = 8088
+default_print_format = "MB"
 
-client_group = parser.add_argument_group('client')
+# Client arguments
+client_group = parser.add_argument_group('client')  # Create a group for the client arguments, for the help text
 client_group.add_argument('-c', '--client', action="store_true", help="Start the client")
 client_group.add_argument('-I', '--serverip', type=check_ip, default=default_ip,
                           help="Server ip address, default %(default)s")
@@ -129,16 +169,18 @@ client_group.add_argument('-n', '--num', type=check_nbytes,
                           help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
 
 # Server arguments
-server_group = parser.add_argument_group('server')
+server_group = parser.add_argument_group('server')  # Create a group for the server arguments, for the help text
 server_group.add_argument('-s', '--server', action="store_true", help="Start the server")
-server_group.add_argument('-b', '--bind', type=check_ip, default="127.0.0.1",
+server_group.add_argument('-b', '--bind', type=check_ip, default=default_ip,
                           help="Bind the server to a specific ip address, default %(default)s")
 
 # Common arguments
-parser.add_argument('-p', '--port', type=check_port, default="8088", help="Port to use, default default %(default)s")
-parser.add_argument('-f', '--format', type=str, default="MB", choices=("B", "KB", "MB"),
+parser.add_argument('-p', '--port', type=check_port, default=default_port,
+                    help="Port to use, default default %(default)s")
+parser.add_argument('-f', '--format', type=str, default=default_print_format, choices=("B", "KB", "MB"),
                     help="Format to print the data in, default %(default)s")
 
+# Parse the arguments
 args = parser.parse_args()
 
 
@@ -151,7 +193,7 @@ def general_summary(servermode=False):
     global transmissions
     global finished_transmissions
     global summary_print_index
-    global FORMAT_RATE
+    global FORMAT_RATE_UNIT
 
     if servermode:
         print(f"\n{'ID':<15s}{'Interval':^15s}{'Received':^15s}{'Rate':^15s}")
@@ -167,18 +209,18 @@ def general_summary(servermode=False):
 
     # Calculate the packet size in bytes
     FORMAT_BIT = 0
-    FORMAT_RATE = "Bps"
+    FORMAT_RATE_UNIT = "Bps"
 
     # Convert the data_total bytes to the desired format i.e B, KB or MB from --format
     if args.format == "B":
         FORMAT_BIT = 1
-        FORMAT_RATE = "bps"
+        FORMAT_RATE_UNIT = "bps"
     elif args.format == "KB":
         FORMAT_BIT = 1 / KILOBYTE
-        FORMAT_RATE = "Kbps"
+        FORMAT_RATE_UNIT = "Kbps"
     elif args.format == "MB":
         FORMAT_BIT = 1 / (KILOBYTE * KILOBYTE)
-        FORMAT_RATE = "Mbps"
+        FORMAT_RATE_UNIT = "Mbps"
 
     # Loop through all the transmissions from the summary_print_index
     for j in range(summary_print_index, len(transmissions)):
@@ -196,9 +238,10 @@ def general_summary(servermode=False):
                     received = total_sent * FORMAT_BIT
 
                 # Format the values to 2 decimal places and add the units
-                f_interval = str(round(total_time, 2)) + " - " + str(round(elapsed_time, 2))
-                f_received = str(round(received, 2)) + args.format
-                f_rate = str(round((received / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
+                f_interval = f"{round(total_time, 2)} - {round(elapsed_time, 2)}"  # i.e  0.00 - 10.00
+                f_received = f"{round(received, 2)} {args.format}"  # i.e  16.00 MB
+                f_rate = f"{round((received / elapsed_time) * 8, 2)} {FORMAT_RATE_UNIT}"  # i.e  128.00 Mbps
+
                 # Print the summary of the transmission
                 print(f"{ip_port_pair:^15s}{f_interval:^15s}{f_received:^15s}{f_rate:^15s}")
 
@@ -220,16 +263,17 @@ def general_summary(servermode=False):
 
 def print_total():
     global finished_transmissions
-    global FORMAT_RATE
+    global FORMAT_RATE_UNIT
     if len(finished_transmissions) != args.parallel:
         # Wait for the other clients to finish before printing the total
         time.sleep(0.1)
 
     print(formating_line)
     for (ip_port_pair, elapsed_time, interval_sent_data, total_sent) in finished_transmissions:
-        f_interval = "0 - " + str(round(elapsed_time, 2)) + "s"
-        f_received = str(round(total_sent, 2)) + args.format
-        f_rate = str(round((total_sent / elapsed_time) * 8, 2)) + " " + FORMAT_RATE
+        # Format the values to 2 decimal places and add the units
+        f_interval = f"0 - {round(elapsed_time, 2)}"  # i.e  0.00 - 10.00
+        f_received = f"{round(total_sent, 2)} {args.format}"  # i.e  16.00 MB
+        f_rate = f"{round((total_sent / elapsed_time) * 8, 2)} {FORMAT_RATE_UNIT}"  # i.e  128.00 Mbps
         print(f"Total {ip_port_pair:^15s}{f_interval:^15s}{f_received:^15s}{f_rate:^15s}")
         # finished_transmissions.remove((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
     finished_transmissions.clear()
@@ -247,7 +291,7 @@ def client_start_client():
         interval_sent_data = 0
         # Set the start time to the current time
         start_time = time.time()
-        # Set the next save interval to 0, this will be used to calculate when to save the data if the user has specified an interval
+        # This variable is used to calculate the interval time for saving the transmission
         save_interval = 0
 
         # Create a new socket
@@ -255,15 +299,14 @@ def client_start_client():
         # Bind the socket to the host and port
         sock.connect((args.serverip, args.port))
 
-        # Get the ip and port of the client
-        ip_port_pair = str(sock.getsockname()[0]) + ":" + str(sock.getsockname()[1])
+        # Get the ip and port of the client and format it to ip:port
+        ip_port_pair = f"{sock.getsockname()[0]}:{sock.getsockname()[1]}"
 
         # Print the client ip and port if we are using multiple clients
         if args.parallel == 1:
             print(f"Client connected to server {args.serverip}, port {args.port}")
         else:
-            print(
-                f"Client {sock.getsockname()[0]}:{sock.getsockname()[1]} connected with server {args.serverip}, port {args.port}")
+            print(f"Client {ip_port_pair} connected with server {args.serverip}, port {args.port}")
 
         # If the user has specified an interval, set the next interval to the current time + the interval time.
         # -0.05 to make sure we don't miss the interval for the interval timer
@@ -333,13 +376,13 @@ def client_start_client():
             transmissions.append((ip_port_pair, elapsed_time, 0, total_sent))
 
     except ConnectionRefusedError:
-        print("Connection refused. Please check the host and port, and try again.")
+        print_error("Connection refused. Please check the host and port, and try again.")
         exit(1)
 
 
 def server_handle_client(c_socket, c_addr):
     # Create the ip:port pair
-    ip_port_pair = c_addr[0] + ":" + str(c_addr[1])
+    ip_port_pair = f"{c_addr[0]}:{c_addr[1]}"
     print_server()
     print(f"\nA simpleperf client with {ip_port_pair} is connected with {args.bind}:{args.port}")
 
@@ -395,9 +438,9 @@ def start_server():
         # Bind the socket to the host and port
         s_socket.bind((args.bind, int(args.port)))
         print_server()  # Print the server info
-        s_socket.settimeout(60 * 5)  # Set the timeout to 10 minutes
+        s_socket.settimeout(60 * 10)  # Set the timeout to 10 minutes
     except socket.error:
-        print("Failed to bind socket, maybe is the port and ip is taken already?")
+        print_error("Failed to bind socket, maybe is the port and ip is taken already?")
         exit(1)
 
     # Start listening for connections
@@ -412,7 +455,7 @@ def start_server():
         except socket.timeout:
             # Close the socket
             s_socket.close()
-            print("\nServer shutting down, no clients connected after 10 minutes...")
+            print(f"\nServer shutting down, no clients connected after {s_socket.gettimeout() / 60} minutes...")
             exit(0)
         except KeyboardInterrupt:
             # Close the socket
@@ -482,14 +525,13 @@ def main():
 
         # Check if user used num
         if args.num is not None:
-            print_error("Num argument cant be used in server mode")
+            print_error("Number of bytes to send cant be used in server mode")
             any_client_args = True
 
         if any_client_args is True:
             parser.print_help()
             exit(1)
-
-        # Start the server
+        # Finally start the server if we have no errors
         start_server()
     # End of server mode
 
@@ -499,7 +541,7 @@ def main():
             print_error("Wrong use of bind, use serverip to set server ip, while using client mode")
             parser.print_help()
             exit(1)
-
+        # Start the client(s)
         start_clients()
     # End of client mode
 

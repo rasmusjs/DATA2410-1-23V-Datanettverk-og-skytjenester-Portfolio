@@ -5,14 +5,13 @@ import time
 import re
 
 # Global variables
-
-KILOBYTE = 1000  # Size of one kilobyte
-transmissions = []  # List of all transmissions
+KILOBYTE = 1000  # Size of one kilobyte, this is set here because so it can be changed to 1024
+transmissions = []  # List of all transmissions in progress
 finished_transmissions = []  # List of all finished transmissions
+interval_elapsed_time = 0.0  # Total time for all transmissions
 summary_print_index = 0  # Index of the last printed transmission
-formating_line = "-" * 45  # Formating line  -----------------------------
 summary_header_print = True  # Boolean to check if the summary header has been printed
-interval_totaltime = 0.0  # Total time for all transmissions
+formatting_line = "-" * 45  # Formatting line = -----------------------------
 FORMAT_RATE_UNIT = ""  # Format for the rate unit i MB/s or KB/s
 
 
@@ -31,16 +30,16 @@ def print_error(error):
 
 # Function to print server messages the same way, with formatting lines and the port number for listening
 def print_server():
-    print(formating_line)
+    print(formatting_line)
     print(f"A simpleperf server is listening on port {args.port}")
-    print(formating_line)
+    print(formatting_line)
 
 
 # Description:
 # check is the input is a positive number, raises an error if it's a string or a negative number
 # Arguments:
 # value: holds the value to check
-# Returns the value if it is a positive number, if the value is returned the program will continue
+# Returns the value if it is a positive number, else it will exit the program
 def check_positive(value):
     # Default error message
     error = None
@@ -63,7 +62,7 @@ def check_positive(value):
 # Arguments:
 # port: port number to use for the server or client
 # Returns: .... and why?
-# Returns the port number if it is valid, if the port is returned the program will continue
+# Returns the port number if valid, else it will exit the program
 def check_port(port):
     # Default error message
     error = None
@@ -92,7 +91,7 @@ def check_port(port):
 # ip: holds the ip address of the server
 # Use of other input and output parameters in the function
 # It checks the dotted decimal notation of the ip address, checks if the ip address starts or ends with 0 and checks if the numbers are in range
-# Returns the ip if valid, if the ip is valid the program will continue
+# Returns the ip if valid, else it will exit the program
 
 def check_ip(ip):
     # Default error message
@@ -129,6 +128,12 @@ def check_ip(ip):
     return ip
 
 
+# Description:
+# checks if number of bytes to send is in the correct format
+# Arguments:
+# nbytes holds the number of bytes to send with the unit
+# It checks if the string starts with a number and ends with B, KB or MB
+# Returns a string if its valid, else it will exit the program
 def check_nbytes(nbytes):
     # Check if string starts with number and ends with B, KB or MB
     check = re.compile(r"^[0-9]+(B|KB|MB)$")
@@ -189,7 +194,7 @@ def general_summary(servermode=False):
     # global total_time
     total_time = 0.0
 
-    global interval_totaltime
+    global interval_elapsed_time
     global transmissions
     global finished_transmissions
     global summary_print_index
@@ -209,7 +214,7 @@ def general_summary(servermode=False):
 
     # Calculate the packet size in bytes
     FORMAT_BIT = 0
-    FORMAT_RATE_UNIT = "Bps"
+    FORMAT_RATE_UNIT = ""
 
     # Convert the data_total bytes to the desired format i.e B, KB or MB from --format
     if args.format == "B":
@@ -224,14 +229,16 @@ def general_summary(servermode=False):
 
     # Loop through all the transmissions from the summary_print_index
     for j in range(summary_print_index, len(transmissions)):
-        (ip_port_pair, elapsed_time, interval_sent_data, total_sent) = transmissions[j]
+        transmission = transmissions[j]
+        (ip_port_pair, elapsed_time, interval_sent_data,
+         total_sent) = transmission.ip_port_pair, transmission.elapsed_time, transmission.interval_sent_data, transmission.total_bytes
 
         if summary_print_index == j:
             if interval_sent_data != 0 or args.interval is None or servermode:
                 # If the client are using the -interval flag, we need to calculate the interval time
                 if args.interval is not None:
-                    total_time = interval_totaltime
-                    elapsed_time = interval_totaltime + args.interval
+                    total_time = interval_elapsed_time
+                    elapsed_time = interval_elapsed_time + args.interval
                     # Convert the received bytes to the desired format i.e B, KB or MB from --format
                     received = interval_sent_data * FORMAT_BIT
                 else:
@@ -249,13 +256,13 @@ def general_summary(servermode=False):
             if interval_sent_data == 0 or servermode:
                 # Convert the total bytes to the desired format i.e B, KB or MB from --format
                 total_sent = round(total_sent * FORMAT_BIT, 2)
-                finished_transmissions.append((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
+                finished_transmissions.append(Transmission(ip_port_pair, elapsed_time, interval_sent_data, total_sent))
 
         # Increment the summary_print_index, this is used to print the summary only once
         summary_print_index += 1
 
     if args.interval is not None:
-        interval_totaltime += args.interval
+        interval_elapsed_time += args.interval
 
     # if server:
     #    print_total()
@@ -268,8 +275,10 @@ def print_total():
         # Wait for the other clients to finish before printing the total
         time.sleep(0.1)
 
-    print(formating_line)
-    for (ip_port_pair, elapsed_time, interval_sent_data, total_sent) in finished_transmissions:
+    print(formatting_line)
+    for transmission in finished_transmissions:
+        (ip_port_pair, elapsed_time, interval_sent_data,
+         total_sent) = transmission.ip_port_pair, transmission.elapsed_time, transmission.interval_sent_data, transmission.total_bytes
         # Format the values to 2 decimal places and add the units
         f_interval = f"0 - {round(elapsed_time, 2)}"  # i.e  0.00 - 10.00
         f_received = f"{round(total_sent, 2)} {args.format}"  # i.e  16.00 MB
@@ -343,7 +352,7 @@ def client_start_client():
                     save_interval = time.time() + int(args.interval) + SAVE_OFFSET
                     # Update the elapsed time
                     elapsed_time = time.time() - start_time
-                    transmissions.append((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
+                    transmissions.append(Transmission(ip_port_pair, elapsed_time, interval_sent_data, total_sent))
                     interval_sent_data = 0
         # If the user has specified a time, send data for that amount of time, default is 25 seconds
         else:
@@ -359,7 +368,7 @@ def client_start_client():
                     save_interval = time.time() + int(args.interval) + SAVE_OFFSET
                     # Update the elapsed time
                     elapsed_time = time.time() - start_time
-                    transmissions.append((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
+                    transmissions.append(Transmission(ip_port_pair, elapsed_time, interval_sent_data, total_sent))
                     interval_sent_data = 0
 
         # Graceful close of connection by sending BYE
@@ -373,7 +382,7 @@ def client_start_client():
             # Update the elapsed time one last time
             elapsed_time = time.time() - start_time
             # Update the transmission, and set the interval_sent_data to 0 since we are done sending data
-            transmissions.append((ip_port_pair, elapsed_time, 0, total_sent))
+            transmissions.append(Transmission(ip_port_pair, elapsed_time, 0, total_sent))
 
     except ConnectionRefusedError:
         print_error("Connection refused. Please check the host and port, and try again.")
@@ -412,7 +421,7 @@ def server_handle_client(c_socket, c_addr):
             # Close the socket after sending the response
             c_socket.close()
             # Save the results of the transmission
-            transmissions.append((ip_port_pair, elapsed_time - start_time, total_received, total_received))
+            transmissions.append(Transmission(ip_port_pair, elapsed_time - start_time, total_received, total_received))
             break
     general_summary(True)
 
@@ -465,9 +474,9 @@ def start_server():
 
 
 def start_clients():
-    print(formating_line)
+    print(formatting_line)
     print(f"A simpleperf client connecting to server {args.serverip}, port {args.port}")
-    print(formating_line)
+    print(formatting_line)
 
     # Create a list of threads
     client_treads = []

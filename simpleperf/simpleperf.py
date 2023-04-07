@@ -3,6 +3,7 @@ import socket
 import threading
 import time
 import re
+import sys
 
 # Global variables
 KILOBYTE = 1000  # Size of one kilobyte, this is set here because so it can be changed to 1024
@@ -15,6 +16,7 @@ formatting_line = "-" * 45  # Formatting line = -----------------------------
 FORMAT_RATE_UNIT = ""  # Format for the rate unit i MB/s or KB/s
 
 
+# Class for holding the data for each transmission
 class Transmission:
     def __init__(self, ip_port_pair, elapsed_time, interval_sent_data, total_bytes):
         self.ip_port_pair = ip_port_pair
@@ -23,9 +25,10 @@ class Transmission:
         self.total_bytes = total_bytes
 
 
-# Print function for printing error messages the same way, with red color and "Error " in the front. Takes a string as input and prints it
+# Print function for printing error messages the same way, with red color and "Error" in the front.
+# Takes a string as input and prints it to standard error output
 def print_error(error):
-    print(f"\033[1;31;1mError: \n\t{error}\n\033[0m")
+    print(f"\033[1;31;1mError: \n\t{error}\n\033[0m", file=sys.stderr)
 
 
 # Function to print server messages the same way, with formatting lines and the port number for listening
@@ -92,7 +95,6 @@ def check_port(port):
 # Use of other input and output parameters in the function
 # It checks the dotted decimal notation of the ip address, checks if the ip address starts or ends with 0 and checks if the numbers are in range
 # Returns the ip if valid, else it will exit the program
-
 def check_ip(ip):
     # Default error message
     error = None
@@ -131,7 +133,7 @@ def check_ip(ip):
 # Description:
 # checks if number of bytes to send is in the correct format
 # Arguments:
-# nbytes holds the number of bytes to send with the unit
+# number of bytes (nbytes) holds the number of bytes to send with the unit
 # It checks if the string starts with a number and ends with B, KB or MB
 # Returns a string if its valid, else it will exit the program
 def check_nbytes(nbytes):
@@ -142,14 +144,14 @@ def check_nbytes(nbytes):
         if not check.match(nbytes):
             raise ValueError
     except ValueError:
-        print_error("Invalid numbers to send must end with B, KB or MB. " + nbytes + " is not recognized")
+        print_error(f"Invalid numbers to send must end with B, KB or MB. {nbytes} is not recognized")
         parser.print_help()
         exit(1)
     # Return the string if it is valid
     return nbytes
 
 
-# Add description and epilog to the parser
+# Add description and epilog to the parser, this is for prettier help text
 parser = argparse.ArgumentParser(description="Simpleperf, a simple iPerf clone for testing network performance.",
                                  epilog="end of help")
 
@@ -160,24 +162,25 @@ default_parallel = 1
 default_port = 8088
 default_print_format = "MB"
 
-# Client arguments
+# Client only arguments
 client_group = parser.add_argument_group('client')  # Create a group for the client arguments, for the help text
-client_group.add_argument('-c', '--client', action="store_true", help="Start the client")
+client_group.add_argument('-c', '--client', action="store_true", help="Start in client mode")
 client_group.add_argument('-I', '--serverip', type=check_ip, default=default_ip,
-                          help="Server ip address, default %(default)s")
+                          help="Server ip address to connect to. Default %(default)s")
 client_group.add_argument('-t', '--time', type=check_positive, default=default_time,
                           help="Time to run the client in seconds, it will try to send as many packets as possible in the given time. Default %(default)s")
-client_group.add_argument('-i', '--interval', type=check_positive)
+client_group.add_argument('-i', '--interval', type=check_positive,
+                          help="Print statistics every x seconds. If not set it will print when the client is finished.")
 client_group.add_argument('-P', '--parallel', type=int, default=default_parallel, choices=range(1, 6),
-                          help="Number of parallel clients, default %(default)s")
+                          help="Number of parallel clients. Default %(default)s")
 client_group.add_argument('-n', '--num', type=check_nbytes,
                           help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
 
-# Server arguments
+# Server only arguments
 server_group = parser.add_argument_group('server')  # Create a group for the server arguments, for the help text
-server_group.add_argument('-s', '--server', action="store_true", help="Start the server")
+server_group.add_argument('-s', '--server', action="store_true", help="Start in server mode")
 server_group.add_argument('-b', '--bind', type=check_ip, default=default_ip,
-                          help="Bind the server to a specific ip address, default %(default)s")
+                          help="Bind the server to a specific ip address. Default %(default)s")
 
 # Common arguments
 parser.add_argument('-p', '--port', type=check_port, default=default_port,
@@ -235,7 +238,7 @@ def general_summary(servermode=False):
 
         if summary_print_index == j:
             if interval_sent_data != 0 or args.interval is None or servermode:
-                # If the client are using the -interval flag, we need to calculate the interval time
+                # If the client is using the interval flag, we need to calculate the interval time
                 if args.interval is not None:
                     total_time = interval_elapsed_time
                     elapsed_time = interval_elapsed_time + args.interval
@@ -271,8 +274,8 @@ def general_summary(servermode=False):
 def print_total():
     global finished_transmissions
     global FORMAT_RATE_UNIT
-    if len(finished_transmissions) != args.parallel:
-        # Wait for the other clients to finish before printing the total
+    # Wait for the other parallel clients to finish, only applicable if a client is using the -P flag
+    if len(finished_transmissions) != args.parallel and args.parallel != 1:
         time.sleep(0.1)
 
     print(formatting_line)
@@ -284,7 +287,6 @@ def print_total():
         f_received = f"{round(total_sent, 2)} {args.format}"  # i.e  16.00 MB
         f_rate = f"{round((total_sent / elapsed_time) * 8, 2)} {FORMAT_RATE_UNIT}"  # i.e  128.00 Mbps
         print(f"Total {ip_port_pair:^15s}{f_interval:^15s}{f_received:^15s}{f_rate:^15s}")
-        # finished_transmissions.remove((ip_port_pair, elapsed_time, interval_sent_data, total_sent))
     finished_transmissions.clear()
 
 
@@ -323,7 +325,7 @@ def client_start_client():
         if args.interval is not None:
             save_interval = time.time() + int(args.interval) + SAVE_OFFSET
 
-        # Loop until we have sent the amount of data specified by the user
+        # If the number of bytes is specified, send the data in chunks of 1KB until all the bytes is sent
         if args.num is not None:
             # Size of the data to send in bytes
             packet_size = 0
@@ -336,25 +338,27 @@ def client_start_client():
             elif args.num.endswith("B"):
                 packet_size = int(args.num[:-1])
 
-            # Fill a buffer with bytes
+            # Fill a buffer with the number of bytes specified
             dump = b'\x10' * packet_size
 
+            # Loop until we have sent all the bytes
             while total_sent < packet_size:
-                # Devide the packet size by the KILOBYTE to get the number of chunks
+                # Get the number of bytes to send, either one KILOBYTE or the remaining bytes
                 bytes_to_send = min(KILOBYTE, packet_size - total_sent)
-                # Send the data in chunks of 1KB
+                # Send in chunks of a KILOBYTE or the remaining bytes
                 sock.send(dump[:bytes_to_send])
                 # Update the total sent
                 total_sent += bytes_to_send
                 # Update the total sent
                 interval_sent_data += KILOBYTE
+                # Save the transmission every interval, if set
                 if time.time() > save_interval != 0:
                     save_interval = time.time() + int(args.interval) + SAVE_OFFSET
                     # Update the elapsed time
                     elapsed_time = time.time() - start_time
                     transmissions.append(Transmission(ip_port_pair, elapsed_time, interval_sent_data, total_sent))
                     interval_sent_data = 0
-        # If the user has specified a time, send data for that amount of time, default is 25 seconds
+        # Else we send data for a specified time given by the time flag, we
         else:
             # Set the runtime
             runtime = time.time() + int(args.time)
@@ -364,6 +368,7 @@ def client_start_client():
                 total_sent += KILOBYTE
                 # Update the total sent
                 interval_sent_data += KILOBYTE
+                # Save the transmission every interval, if set
                 if time.time() > save_interval != 0:
                     save_interval = time.time() + int(args.interval) + SAVE_OFFSET
                     # Update the elapsed time
@@ -487,7 +492,7 @@ def start_clients():
         client.start()
         client_treads.append(client)
 
-    # Check if ineterval is set, if not wait for all clients to finish then print the summary
+    # Check if an interval is set, if not wait for all clients to finish, then print the summary
     if args.interval is None:
         # Wait for all clients to finish
         for client in client_treads:
@@ -510,49 +515,60 @@ def main():
 
     if args.server:
         # Error checking for server mode, check if user used any client arguments
-        any_client_args = False
+        server_args_invalid = False
 
         # Check if user used bind to set server ip
         if args.serverip != default_ip:
             print_error("Wrong use of serverip, use bind to set server ip, while using server mode")
-            any_client_args = True
+            server_args_invalid = True
 
         # Check if user used time
         if args.time != default_time:
             print_error("Time argument cant be used in server mode")
-            any_client_args = True
+            server_args_invalid = True
 
-        # Check if user used interval
+        # Check if user used an interval
         if args.interval is not None:
             print_error("Interval argument cant be used in server mode")
-            any_client_args = True
+            server_args_invalid = True
 
         # Check if user used parallel
         if args.parallel != default_parallel:
             print_error("Parallel argument cant be used in server mode")
-            any_client_args = True
+            server_args_invalid = True
 
         # Check if user used num
         if args.num is not None:
             print_error("Number of bytes to send cant be used in server mode")
-            any_client_args = True
+            server_args_invalid = True
 
-        if any_client_args is True:
+        if server_args_invalid is True:
             parser.print_help()
             exit(1)
-        # Finally start the server if we have no errors
+        # Finally, start the server if we have no errors
         start_server()
     # End of server mode
 
     if args.client:
+        client_args_invalid = False
+
         # Error checking for client mode, check if user used any server arguments
         if args.bind != "127.0.0.1":
             print_error("Wrong use of bind, use serverip to set server ip, while using client mode")
+            client_args_invalid = True
+
+        # Check if user used both time and number of bytes to send
+        if args.num is not None and args.time != default_time:
+            print_error("You must specify either number of bytes to send or time to send for")
+            client_args_invalid = True
+
+        if client_args_invalid is True:
             parser.print_help()
             exit(1)
+
         # Start the client(s)
         start_clients()
-    # End of client mode
+        # End of client mode
 
 
 if __name__ == "__main__":

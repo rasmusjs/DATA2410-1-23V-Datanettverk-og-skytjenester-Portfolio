@@ -18,7 +18,7 @@ FORMAT_RATE_UNIT = ""  # Format for the rate unit i MB/s or KB/s
 
 # Description:
 #   Class for holding the data for each transmission for server and clients
-# Parameters:
+# Arguments:
 #   ip_port_pair: holds the ip address of the server and the port number used, i.e. 10.0.0.2:5000
 #   elapsed_time: holds the time it took to send the data
 #   interval_bytes: holds the data sent in this interval in bytes, it is used to calculate the rate in given interval
@@ -35,7 +35,7 @@ class Transmission:
 
 # Description:
 #   Function for printing error messages, to standard error output with formatting
-# Parameters:
+# Global variables:
 #   error_message: string with the error message to print
 # Returns:
 #   nothing, it prints the error message with red color and "Error" to standard error output
@@ -45,7 +45,7 @@ def print_error(error_message):
 
 # Description:
 #   Prints a formatting line and which port a server is listening on
-# Arguments:
+# Parameters:
 #   listening_port: holds the port number the server is listening from input parameters set by the user
 # Returns:
 #   nothing, it prints the formatting line and the port number
@@ -57,7 +57,7 @@ def print_server_listening_port(listening_port):
 
 # Description:
 # check is the input is a positive number, raises an error if it's not integer are a negative
-# Arguments:
+# Parameters:
 # integer: holds the integer to check
 # Returns:
 #   the integer if it is a positive number, else it will exit the program with an error message
@@ -80,10 +80,10 @@ def check_positive_integer(integer):
 
 # Description:
 #   checks if the port is an integer between 1024 and 65535
-# Arguments:
+# Parameters:
 #   port: holds the port nuber for server or client
 # Returns:
-#   the port number if valid, else it will exit the program with an error message
+#   the port number (integer) if valid, else it will exit the program with an error message
 def check_port(port):
     # Default error message message
     error_message = None
@@ -109,7 +109,7 @@ def check_port(port):
 # Description:
 #   checks if the ip are in dotted decimal notation, and removes leading zeroes
 #   it checks the ranges of the numbers, and if it starts or ends with 0.
-# Arguments:
+# Parameters:
 #   ip: holds the ip address of the server
 # Returns
 #   the ip same ipaddress without leading zeroes, else it will exit the program with an error message
@@ -157,7 +157,7 @@ def check_ipaddress(ip):
 # Description:
 #   checks if number of bytes to send is in the correct format using regex
 #   It checks if the string starts with a number and ends with B, KB or MB
-# Arguments:
+# Parameters:
 #   number of bytes (nbytes) holds the number of bytes to send with the unit i.e. 1B, 1KB, 1MB
 # Returns:
 #   a string if its valid, else it will exit the program with an error message
@@ -213,15 +213,15 @@ parser.add_argument('-p', '--port', type=check_port, default=default_port,
 parser.add_argument('-f', '--format', type=str, default=default_print_format, choices=("B", "KB", "MB"),
                     help="Format to print the data in, default %(default)s")
 
-# Parse the arguments
+# Parses the arguments from the user, it calls the check functions to validate the inputs given
 args = parser.parse_args()
 
 
 # Description:
 #   This function will print the summary of the client or server
-# Arguments:
-#   server_mode: boolean, if server_mode is set it will print a different summary with different headers and intervals
 # Parameters:
+#   server_mode: boolean, if server_mode is set it will print a different summary with different headers and intervals
+# Global variables:
 #   interval_elapsed_time: hold the interval time of the last summary
 #   transmissions: holds the transmissions. With server mode this is the finished transmissions, else it's the transmissions in an interval
 #   finished_transmissions: holds the finished transmissions, if the interval_byte is 0 the transmission is finished and will be added to this list
@@ -229,8 +229,6 @@ args = parser.parse_args()
 #   FORMAT_RATE_UNIT: holds the unit to print the rate in, this is set in the main function
 # Returns:
 #   nothing, it will print the summary
-
-
 def general_summary(server_mode=False):
     # Set the total time to 0, this will be used to calculate the interval
     total_time = 0.0
@@ -309,6 +307,13 @@ def general_summary(server_mode=False):
     #    print_total()
 
 
+# Description:
+#   This function prints the total summary of the client or server
+# Global variables:
+#   finished_transmissions: holds the finished transmissions, if the interval_byte is 0 the transmission is finished and will be added to this list
+#   FORMAT_RATE_UNIT: holds the unit to print the rate in, this is set by general_summary
+# Returns:
+#   nothing, it will print the total summary of the client or server
 def print_total():
     global finished_transmissions
     global FORMAT_RATE_UNIT
@@ -328,10 +333,113 @@ def print_total():
     finished_transmissions.clear()
 
 
+# Description:
+#   This function is used to handle the client when it joins the server.
+#   It will also print the summary and add the transmission to the global variable transmissions
+# Parameters:
+#   c_socket: the socket of the client
+#   c_addr: the address of the client (ip, port)
+# Global variables:
+#   transmissions: holds the transmissions of the client on the server side
+# Returns:
+#   nothing, it will handle the client and print the summary
+def server_handle_client(c_socket, c_addr):
+    # Create the ip:port pair
+    ip_port_pair = f"{c_addr[0]}:{c_addr[1]}"
+    print_server_listening_port(args.port)
+    print(f"\nA simpleperf client with {ip_port_pair} is connected with {args.bind}:{args.port}")
+
+    # Get the global variable for the server_transmissions
+    global transmissions
+    # Current time
+    start_time = time.time()
+    # Size of the packet
+    total_received = 0
+    while True:
+        # Get the request
+        packet = c_socket.recv(KILOBYTE)
+        # Add the size of the packet
+        total_received += len(packet)
+        # Remove the escape character
+        packet = packet.strip(b'\x10')
+        # Decode the packet
+        packet = packet.decode()
+
+        # Check if the client wants to EXIT
+        if packet == "BYE":
+            # Update the elapsed time one last time
+            elapsed_time = time.time()
+            total_received -= len("BYE")
+            # Send the response
+            c_socket.send("ACK:BYE".encode())
+            # Close the socket after sending the response
+            c_socket.close()
+            # Save the results of the transmission
+            transmissions.append(Transmission(ip_port_pair, elapsed_time - start_time, total_received, total_received))
+            break
+    general_summary(True)
+
+
+# Description:
+#   This function is used to start the server.
+#   When a client connects, it will create a new thread to handle the client i.e. server_handle_client.
+# Parameters:
+#   the function takes no parameters in its signature, but it uses the parameters from argparse
+#   ip: the ip to bind the socket to
+#   port: the port to bind the socket to
+#   format: the format to print the data in i.e B, KB or MB
+# Returns:
+#   nothing, it will start an instance the server
+def start_server():
+    # Create socket
+    s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Try to bind to the ip and port and accept connections
+    try:
+        # Bind the socket to the host and port
+        s_socket.bind((args.bind, int(args.port)))
+        print_server_listening_port(args.port)
+        s_socket.settimeout(60 * 10)  # Set the timeout to 10 minutes
+    except socket.error:
+        print_error("Failed to bind socket, maybe is the port and ip is taken already?")
+        exit(1)
+
+    # Start listening for connections
+    s_socket.listen()
+
+    while True:
+        try:
+            # Accept connections
+            c_socket, c_addr = s_socket.accept()
+            # Create a new thread for each client to handle the connection
+            threading.Thread(target=server_handle_client, args=(c_socket, c_addr)).start()
+        except socket.timeout:
+            # Close the socket
+            s_socket.close()
+            print(f"\nServer shutting down, no clients connected after {s_socket.gettimeout() / 60} minutes...")
+            exit(0)
+        except KeyboardInterrupt:
+            # Close the socket
+            s_socket.close()
+            print("\nServer shutting down...")
+            exit(0)
+
+
+# Description:
+#   This function is used to start a single instance of the client, the client will try to connect to a server using
+#   TCP sockets with the given port and ip
+# Parameters:
+#   the function takes no parameters in its signature, but it uses the parameters from argparse
+#   serverip: the ip of the server to connect to
+#   port: the port to use for initiating the connection
+#   time: the time to run the client for
+#   num: the number of bytes to send
+# Global variables:
+#  transmissions: holds the transmissions. With server mode this is the finished transmissions, else it's the transmissions in an interval
+# Returns:
+#   nothing, it will start a single instance a client
 def client_start_client():
     try:
         # Use the global variables
-        global KILOBYTE
         global transmissions
 
         # Total sent keeps track of how many bytes we have sent in total
@@ -435,43 +543,14 @@ def client_start_client():
         exit(1)
 
 
-def server_handle_client(c_socket, c_addr):
-    # Create the ip:port pair
-    ip_port_pair = f"{c_addr[0]}:{c_addr[1]}"
-    print_server_listening_port(args.port)
-    print(f"\nA simpleperf client with {ip_port_pair} is connected with {args.bind}:{args.port}")
-
-    # Get the global variable for the server_transmissions
-    global transmissions
-    # Current time
-    start_time = time.time()
-    # Size of the packet
-    total_received = 0
-    while True:
-        # Get the request
-        packet = c_socket.recv(KILOBYTE)
-        # Add the size of the packet
-        total_received += len(packet)
-        # Remove the escape character
-        packet = packet.strip(b'\x10')
-        # Decode the packet
-        packet = packet.decode()
-
-        # Check if the client wants to EXIT
-        if packet == "BYE":
-            # Update the elapsed time one last time
-            elapsed_time = time.time()
-            total_received -= len("BYE")
-            # Send the response
-            c_socket.send("ACK:BYE".encode())
-            # Close the socket after sending the response
-            c_socket.close()
-            # Save the results of the transmission
-            transmissions.append(Transmission(ip_port_pair, elapsed_time - start_time, total_received, total_received))
-            break
-    general_summary(True)
-
-
+# Description:
+#   This function is used to print the summary of the client every x seconds while we have clients running
+# Parameters:
+#  client_treads: the list of threads that are started running
+# Arguments:
+#   none
+# Returns:
+#   nothing, but prints the summary of all the clients running
 def interval_timer(client_treads):
     # Print statistics every interval, until all clients have finished
     while len(client_treads) != 0:
@@ -485,39 +564,20 @@ def interval_timer(client_treads):
                 client_treads.remove(client)
 
 
-def start_server():
-    # Create socket
-    s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # Try to bind to the ip and port and accept connections
-    try:
-        # Bind the socket to the host and port
-        s_socket.bind((args.bind, int(args.port)))
-        print_server_listening_port(args.port)
-        s_socket.settimeout(60 * 10)  # Set the timeout to 10 minutes
-    except socket.error:
-        print_error("Failed to bind socket, maybe is the port and ip is taken already?")
-        exit(1)
-
-    # Start listening for connections
-    s_socket.listen()
-
-    while True:
-        try:
-            # Accept connections
-            c_socket, c_addr = s_socket.accept()
-            # Create a new thread for each client to handle the connection
-            threading.Thread(target=server_handle_client, args=(c_socket, c_addr)).start()
-        except socket.timeout:
-            # Close the socket
-            s_socket.close()
-            print(f"\nServer shutting down, no clients connected after {s_socket.gettimeout() / 60} minutes...")
-            exit(0)
-        except KeyboardInterrupt:
-            # Close the socket
-            s_socket.close()
-            print("\nServer shutting down...")
-            exit(0)
-
+# Description:
+#   This function is used to start the client's
+# Parameters:
+#   the function takes no parameters in its signature, but it uses the parameters from argparse
+#   serverip: the ip of the server to connect to
+#   port: the port to use for initiating the connection
+#   time: the time to run the client for
+#   num: the number of bytes to send
+#   interval: the interval to print the summary
+#   parallel: the number of parallel clients to run
+# Arguments:
+#   none
+# Returns:
+#   nothing, but prints the summary of all the clients running when they are done if interval not set
 
 def start_clients():
     print(formatting_line)
@@ -542,11 +602,27 @@ def start_clients():
         general_summary()
     else:
         interval_timer(client_treads)
-        # Wait for all clients to finish
+    # Wait for all clients to finish
     time.sleep(0.5)
     print_total()
 
 
+# Description:
+# This is the main function it starts the server or the client depending on the arguments
+# Parameters:
+# the function takes no parameters in its signature, but it uses the parameters from argparse
+#   server: a boolean that is true if the user wants to run in server mode
+#   client: a boolean that is true if the user wants to run in client mode
+#   serverip: the ip of the server to connect to
+#   port: the port to use for initiating the connection
+#   time: the time to run the client for
+#   num: the number of bytes to send
+#   interval: the interval to print the summary
+#   parallel: the number of parallel clients to run
+# Arguments:
+#   none
+# Returns:
+#   nothing
 def main():
     # Check if server and client are both set, or none of them
     if (args.server and args.client) or (not args.server and not args.client):
@@ -612,5 +688,6 @@ def main():
         # End of client mode
 
 
+# Start the main function
 if __name__ == "__main__":
     main()

@@ -286,6 +286,10 @@ def general_summary(server_mode=False):
                 # Format the values to 2 decimal places and add the units
                 f_interval = f"{round(total_time, 2)} - {round(elapsed_time, 2)}"  # i.e  0.00 - 10.00
                 f_received = f"{round(received, 2)} {args.format}"  # i.e  16.00 MB
+                # If the interval is set elapsed_time will be the interval time, else it will be the total time
+                if args.interval is not None:
+                    elapsed_time = args.interval
+
                 f_rate = f"{round((received / elapsed_time) * 8, 2)} {FORMAT_RATE_UNIT}"  # i.e  128.00 Mbps
 
                 # Print the summary of the transmission
@@ -602,7 +606,7 @@ def start_clients():
         general_summary()
     else:
         interval_timer(client_treads)
-    # Wait for all clients to finish
+    # Wait for all clients to finish adding their transmissions
     time.sleep(0.5)
     print_total()
 

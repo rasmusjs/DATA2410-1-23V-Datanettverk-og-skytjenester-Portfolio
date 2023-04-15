@@ -116,7 +116,7 @@ def check_port(port):
 def check_ipaddress(ip):
     # Default error message message
     error_message = None
-    # Split the ip into a list
+    # Split the ip into a list of octets
     ip_split = ip.split(".")
     # Clear the ip string
     ip = ""
@@ -126,20 +126,24 @@ def check_ipaddress(ip):
             error_message = f"{ip} is not a valid ip. IPs must be in IPv4 format i.e in dotted decimal notation X.X.X.X"
             raise ValueError
 
-        # Check if we start or end with 0
-        if int(ip_split[0]) == 0 or int(ip_split[3]) == 0:
-            error_message = f"{ip} ip cannot start or end with 0"
-            raise ValueError
-
         # Check if numbers are in range 0-255 and convert i.e. 01 to 1
         for number in ip_split:
+            if not number.isdigit():
+                error_message = f"{number} is not a valid number, must be between 0-255"
+                raise ValueError
+
             if 0 > int(number):
-                error_message = f"{number} is not a valid number, must be positive"
+                error_message = f"{number} is not a valid number, must be positive in the range 0-255"
                 raise ValueError
 
             # If number is larger
             if 255 < int(number):
                 error_message = f"{number} is not a valid number, must be smaller than 255"
+                raise ValueError
+
+            # Check if its starts with 0
+            if int(ip_split[0]) == 0:
+                error_message = f"{ip} ip cannot start with 0"
                 raise ValueError
 
             # Convert i.e 01 to 1

@@ -193,11 +193,11 @@ client_group.add_argument('-c', '--client', action="store_true", help="Start in 
 client_group.add_argument('-I', '--serverip', type=check_ipaddress, default=default_ip,
                           help="Server ip address to connect to. Default %(default)s")
 client_group.add_argument('-t', '--time', type=check_positive_integer, default=default_time,
-                          help="Time to run the client in seconds, it will try to send as many packets as possible in the given time. Default %(default)s")
+                          help="Time to run the client in seconds, it will try to send as many packets as possible in the given time. Default %(default)s seconds")
 client_group.add_argument('-i', '--interval', type=check_positive_integer,
                           help="Print statistics every x seconds. If not set it will print when the client is finished.")
 client_group.add_argument('-P', '--parallel', type=int, default=default_parallel, choices=range(1, 6),
-                          help="Number of parallel clients. Default %(default)s")
+                          help="Number of parallel clients. Default is  %(default)s client")
 client_group.add_argument('-n', '--num', type=check_nbytes,
                           help="Number of bytes to send i.e 10MB. Valid units B, MB or KB.")
 
@@ -359,26 +359,34 @@ def server_handle_client(c_socket, c_addr):
     start_time = time.time()
     # Size of the packet
     total_received = 0
-    while True:
-        # Get the request
-        packet = c_socket.recv(KILOBYTE)
-        # Add the size of the packet
-        total_received += len(packet)
-        # Remove the escape character
-        packet = packet.strip(b'\x10')
-        # Decode the packet
-        packet = packet.decode()
 
-        # Check if the client wants to EXIT
-        if packet == "BYE":
-            # Update the elapsed time one last time
+    while True:
+        try:
+            # Get the request
+            packet = c_socket.recv(KILOBYTE)
+            # Add the size of the packet
+            total_received += len(packet)
+            # Remove the escape character
+            packet = packet.strip(b'\x10')
+            # Decode the packet
+            packet = packet.decode()
+
+            # Check if the client wants to EXIT
+            if packet == "BYE":
+                # Update the elapsed time one last time
+                elapsed_time = time.time()
+                total_received -= len("BYE")
+                # Send the response
+                c_socket.send("ACK:BYE".encode())
+                # Close the socket after sending the response
+                c_socket.close()
+                # Save the results of the transmission
+                transmissions.append(
+                    Transmission(ip_port_pair, elapsed_time - start_time, total_received, total_received))
+                break
+        except ConnectionResetError:
             elapsed_time = time.time()
-            total_received -= len("BYE")
-            # Send the response
-            c_socket.send("ACK:BYE".encode())
-            # Close the socket after sending the response
-            c_socket.close()
-            # Save the results of the transmission
+            print_error(f"Connection to {ip_port_pair} has been lost")
             transmissions.append(Transmission(ip_port_pair, elapsed_time - start_time, total_received, total_received))
             break
     general_summary(True)
@@ -469,7 +477,7 @@ def client_start_client():
             print(f"Client {ip_port_pair} connected with server {args.serverip}, port {args.port}")
 
         # If the user has specified an interval, set the next interval to the current time + the interval time.
-        # -0.05 to make sure we don't miss the interval for the interval timer
+        # -0.05 to make sure we don't miss the interval for saving the results for the transmission
         SAVE_OFFSET = -0.05
         if args.interval is not None:
             save_interval = time.time() + int(args.interval) + SAVE_OFFSET

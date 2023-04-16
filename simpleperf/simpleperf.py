@@ -44,7 +44,7 @@ def print_error(error_message):
 
 
 # Description:
-#   Prints a formatting line and which port a server is listening on
+#   Prints a formatting line and which port a server is listening on.
 # Parameters:
 #   listening_port: holds the port number the server is listening from input parameters set by the user
 # Returns:
@@ -56,11 +56,11 @@ def print_server_listening_port(listening_port):
 
 
 # Description:
-# check is the input is a positive number, raises an error if it's not integer are a negative
+# Checks is the input is a positive integer, raises an error if it's not.
 # Parameters:
 # integer: holds the integer to check
 # Returns:
-#   the integer if it is a positive number, else it will exit the program with an error message
+#   Returns the integer if valid, else it will exit the program with an error message
 def check_positive_integer(integer):
     # Default error message message
     error_message = None
@@ -79,11 +79,11 @@ def check_positive_integer(integer):
 
 
 # Description:
-#   checks if the port is an integer between 1024 and 65535
+#   Checks if an integer from and including 1024 and up to and including 65,535
 # Parameters:
-#   port: holds the port nuber for server or client
+#   port: holds the port number for server or client
 # Returns:
-#   the port number (integer) if valid, else it will exit the program with an error message
+#   Returns the port (integer) if valid, else it will exit the program with an error message
 def check_port(port):
     # Default error message message
     error_message = None
@@ -107,8 +107,8 @@ def check_port(port):
 
 
 # Description:
-#   checks if the ip are in dotted decimal notation, and removes leading zeroes
-#   it checks the ranges of the numbers, and if it starts or ends with 0.
+#   Checks if an IP address is in dotted decimal notation.
+#   It checks the ranges of the numbers, and if it starts 0.
 # Parameters:
 #   ip: holds the ip address of the server
 # Returns
@@ -195,7 +195,7 @@ default_print_format = "MB"
 client_group = parser.add_argument_group('client')  # Create a group for the client arguments, for the help text
 client_group.add_argument('-c', '--client', action="store_true", help="Start in client mode")
 client_group.add_argument('-I', '--serverip', type=check_ipaddress, default=default_ip,
-                          help="Server ip address to connect to. Default %(default)s")
+                          help="Server ip address to connect to, in dotted decimal notation. Default %(default)s")
 client_group.add_argument('-t', '--time', type=check_positive_integer, default=default_time,
                           help="Time to run the client in seconds, it will try to send as many packets as possible in the given time. Default %(default)s seconds")
 client_group.add_argument('-i', '--interval', type=check_positive_integer,
@@ -209,7 +209,7 @@ client_group.add_argument('-n', '--num', type=check_nbytes,
 server_group = parser.add_argument_group('server')  # Create a group for the server arguments, for the help text
 server_group.add_argument('-s', '--server', action="store_true", help="Start in server mode")
 server_group.add_argument('-b', '--bind', type=check_ipaddress, default=default_ip,
-                          help="Bind the server to a specific ip address. Default %(default)s")
+                          help="Bind the server to a specific ip address, in dotted decimal notation. Default %(default)s")
 
 # Common arguments
 parser.add_argument('-p', '--port', type=check_port, default=default_port,
@@ -222,7 +222,7 @@ args = parser.parse_args()
 
 
 # Description:
-#   This function will print the summary of the client or server
+#   This function will print the statistics of a transmission of the client or server
 # Parameters:
 #   server_mode: boolean, if server_mode is set it will print a different summary with different headers and intervals
 # Global variables:
@@ -233,7 +233,7 @@ args = parser.parse_args()
 #   FORMAT_RATE_UNIT: holds the unit to print the rate in, this is set in the main function
 # Returns:
 #   nothing, it will print the summary
-def general_summary(server_mode=False):
+def general_statistics(server_mode=False):
     # Set the total time to 0, this will be used to calculate the interval
     total_time = 0.0
 
@@ -319,7 +319,7 @@ def general_summary(server_mode=False):
 #   This function prints the total summary of the client or server
 # Global variables:
 #   finished_transmissions: holds the finished transmissions, if the interval_byte is 0 the transmission is finished and will be added to this list
-#   FORMAT_RATE_UNIT: holds the unit to print the rate in, this is set by general_summary
+#   FORMAT_RATE_UNIT: holds the unit to print the rate in, this is set by general_statistics
 # Returns:
 #   nothing, it will print the total summary of the client or server
 def print_total():
@@ -393,7 +393,7 @@ def server_handle_client(c_socket, c_addr):
             print_error(f"Connection to {ip_port_pair} has been lost")
             transmissions.append(Transmission(ip_port_pair, elapsed_time - start_time, total_received, total_received))
             break
-    general_summary(True)
+    general_statistics(True)
 
 
 # Description:
@@ -407,10 +407,12 @@ def server_handle_client(c_socket, c_addr):
 # Returns:
 #   nothing, it will start an instance the server
 def start_server():
-    # Create socket
-    s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # Try to bind to the ip and port and accept connections
+    # Try to create the socket
     try:
+        # Create socket
+        s_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Try to bind to the ip and port and accept connections
+
         # Bind the socket to the host and port
         s_socket.bind((args.bind, int(args.port)))
         print_server_listening_port(args.port)
@@ -573,7 +575,7 @@ def interval_timer(client_treads):
         # Wait for the interval
         time.sleep(args.interval)
         # Print the summary
-        general_summary()
+        general_statistics()
         # Remove the threads that have finished
         for client in client_treads:
             if not client.is_alive():
@@ -581,7 +583,7 @@ def interval_timer(client_treads):
 
 
 # Description:
-#   This function is used to start the client's
+#   This function starts the client(s) by the parallel flag
 # Parameters:
 #   the function takes no parameters in its signature, but it uses the parameters from argparse
 #   serverip: the ip of the server to connect to
@@ -615,7 +617,7 @@ def start_clients():
         for client in client_treads:
             client.join()
         # Print the summary
-        general_summary()
+        general_statistics()
     else:
         interval_timer(client_treads)
     # Wait for all clients to finish adding their transmissions
@@ -624,9 +626,9 @@ def start_clients():
 
 
 # Description:
-# This is the main function it starts the server or the client depending on the arguments
+#   This is the main function it starts the server or the client depending on the arguments
 # Parameters:
-# the function takes no parameters in its signature, but it uses the parameters from argparse
+#   the function takes no parameters in its signature, but it uses the parameters from argparse
 #   server: a boolean that is true if the user wants to run in server mode
 #   client: a boolean that is true if the user wants to run in client mode
 #   serverip: the ip of the server to connect to
